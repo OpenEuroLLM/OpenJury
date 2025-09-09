@@ -3,14 +3,13 @@
 TODOs:
 * support loading local completions
 * support m-arena-hard
-* dump outputs
+* support dumping outputs
 * test openai judge
-* test vllm judge
+* test vLLM judge
 * handle errors
 * CLI launcher
 * document options
 * CI
-* tqdm callback with batch
 * cost?
 
 Done:
@@ -18,4 +17,5 @@ Done:
 * support arena-hard
 * test together judge
 * local env variable to set paths
+* tqdm callback with batch
 

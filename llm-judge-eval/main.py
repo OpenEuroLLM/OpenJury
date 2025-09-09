@@ -2,7 +2,8 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-
+import asyncio
+from tqdm.asyncio import tqdm
 import numpy as np
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -89,6 +90,7 @@ def evaluate_completions(
     method_A: str = "gpt4_1106_preview",
     num_annotations: int | None = 50,
     method_B: str = "llama-2-70b-chat-hf",
+    use_tqdm: bool = True,
 ):
     assert dataset in ["alpaca-eval", "arena-hard"]
 
@@ -106,10 +108,15 @@ def evaluate_completions(
     ).sort_index()
     instructions = df_instructions.loc[df_outputs.index, "instruction"]
 
-    completions_baseline = df_outputs.loc[:, method_A].sort_index()
+    def get_output(method: str):
+        assert (
+            method in df_outputs.columns
+        ), f"Method {method} not present, pick among {df_outputs.columns.tolist()}"
+        return df_outputs.loc[:, method].sort_index()
 
     # TODO allow to load local completions
-    completions_method = df_outputs.loc[:, method_B].sort_index()
+    completions_baseline = get_output(method_A)
+    completions_method = get_output(method_B)
 
     annotations = annotate(
         judge_chat_model=judge_chat_model,
@@ -117,6 +124,7 @@ def evaluate_completions(
         completions_A=completions_baseline,
         completions_B=completions_method,
         num_annotations=num_annotations,
+        use_tqdm=use_tqdm,
     )
 
     print(annotations)
@@ -145,6 +153,34 @@ class JudgeAnnotation:
     preference: float
 
 
+def inference_with_tqdm(chat_model, inputs, use_tqdm: bool = True):
+    invoke_kwargs = {"stop": ["```"]}
+    if use_tqdm:
+
+        async def process_with_real_progress(chat_model, inputs):
+            async def process_single(input_item):
+                return await chat_model.ainvoke(input_item, **invoke_kwargs)
+
+            # Create all tasks
+            tasks = [asyncio.create_task(process_single(inp)) for inp in inputs]
+            results = []
+
+            # Track progress as tasks complete
+            with tqdm(total=len(inputs)) as pbar:
+                for task in asyncio.as_completed(tasks):
+                    result = await task
+                    results.append(result)
+                    pbar.update(1)
+
+            return results
+
+        return asyncio.run(
+            process_with_real_progress(chat_model=chat_model, inputs=inputs)
+        )
+    else:
+        return judge_chat_model.batch(inputs=inputs, **invoke_kwargs)
+
+
 def annotate(
     judge_chat_model,
     user_prompts: list[str],
@@ -153,6 +189,7 @@ def annotate(
     system_prompt: str | None = None,
     user_prompt_template: str = None,
     num_annotations: int | None = None,
+    use_tqdm: bool = True,
 ) -> list[JudgeAnnotation]:
     # alternatively pass list of tuples
     assert len(user_prompts) == len(completions_A) == len(completions_B)
@@ -187,11 +224,16 @@ def annotate(
         ]
     )
     # TODO handle errors
-    # TODO add callback with tqdm
-    judge_completions = judge_chat_model.batch(
+
+    judge_completions = inference_with_tqdm(
+        chat_model=judge_chat_model,
         inputs=inputs,
-        stop=["```"],
+        use_tqdm=use_tqdm,
     )
+
+    # judge_completions = judge_chat_model.batch(
+    #     inputs=inputs, stop=["```"],
+    # )
     annotations = []
     score_parser = PairScore()
     for judge_completion in judge_completions:
@@ -221,18 +263,21 @@ if __name__ == "__main__":
     )
     print(annotations)
 
+    judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
+    num_annotations = 100
     evaluate_completions(
         dataset="alpaca-eval",
-        num_annotations=50,
+        num_annotations=num_annotations,
         method_A="gpt4_1106_preview",
-        method_B="llama-2-70b-chat-hf",
-        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        method_B="Llama-3-Instruct-8B-SimPO",
+        judge_chat_model=judge_chat_model,
+        use_tqdm=False,
     )
 
-    evaluate_completions(
-        dataset="arena-hard",
-        num_annotations=50,
-        method_A="gpt-4-1106-preview",
-        method_B="Llama-2-70b-chat-hf",
-        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    )
+    # evaluate_completions(
+    #     dataset="arena-hard",
+    #     num_annotations=50,
+    #     method_A="gpt-4-1106-preview",
+    #     method_B="Llama-2-8b-chat-hf",
+    #     judge_chat_model=judge_chat_model,
+    # )
