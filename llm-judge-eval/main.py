@@ -1,17 +1,21 @@
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
-from datasets import load_dataset as hf_load_dataset
 from huggingface_hub import snapshot_download
-from langchain_community.llms import VLLM, Together
-from langchain.schema import BaseMessage, HumanMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.cache import SQLiteCache
+from langchain_community.llms import Together
 from langchain_core.globals import set_llm_cache
-import numpy as np
-import re
 
-set_llm_cache(SQLiteCache(database_path=".langchain.db"))
+data_root = Path(
+    os.environ.get("LLM_JUDGE_EVAL_DATA", "~/llm-judge-eval-data/")
+).expanduser()
+
+set_llm_cache(SQLiteCache(database_path=str(data_root / ".langchain.db")))
 
 
 class PairScore:
@@ -79,7 +83,7 @@ def load_judge_system_and_user_prompt() -> tuple[str, str]:
 
 def evaluate_completions(
     dataset: str = "alpaca-eval",
-    judge_chat_model=Together(model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+    judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
     # baseline to compare with and compute win-rate must be available in completions
     # TODO we could support loading local completions to compare two models as done in Aya
     method_A: str = "gpt4_1106_preview",
@@ -88,16 +92,15 @@ def evaluate_completions(
 ):
     assert dataset in ["alpaca-eval", "arena-hard"]
 
-    # TODO support env variable
-    data_root = Path("~/judge-tuning-data/tables/").expanduser()
-    download_hf(name=dataset, local_path=data_root)
+    local_path_tables = data_root / "tables"
+    download_hf(name=dataset, local_path=local_path_tables)
 
     df_instructions = (
-        read_df(data_root / "instructions" / f"{dataset}.csv")
+        read_df(local_path_tables / "instructions" / f"{dataset}.csv")
         .set_index("instruction_index")
         .sort_index()
     )
-    df_outputs = read_df(data_root / "model_outputs" / f"{dataset}.csv.zip")
+    df_outputs = read_df(local_path_tables / "model_outputs" / f"{dataset}.csv.zip")
     df_outputs = df_outputs.pivot_table(
         index="instruction_index", columns="model", values="output", aggfunc="last"
     ).sort_index()
@@ -184,6 +187,7 @@ def annotate(
         ]
     )
     # TODO handle errors
+    # TODO add callback with tqdm
     judge_completions = judge_chat_model.batch(
         inputs=inputs,
         stop=["```"],
@@ -207,7 +211,7 @@ if __name__ == "__main__":
     # system_prompt, user_prompt_template = load_judge_system_and_user_prompt()
     annotations = annotate(
         # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
-        judge_chat_model=Together(model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         # the instructions we want to evaluate
         user_prompts=["Write numbers between 1 and 5."],
         # the completions we want to evaluate for the first model
@@ -222,7 +226,7 @@ if __name__ == "__main__":
         num_annotations=50,
         method_A="gpt4_1106_preview",
         method_B="llama-2-70b-chat-hf",
-        judge_chat_model=Together(model="meta-llama/Meta-Llama-3.3-70B-Instruct-Turbo"),
+        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
     )
 
     evaluate_completions(
@@ -230,5 +234,5 @@ if __name__ == "__main__":
         num_annotations=50,
         method_A="gpt-4-1106-preview",
         method_B="Llama-2-70b-chat-hf",
-        judge_chat_model=Together(model="meta-llama/Meta-Llama-3.3-70B-Instruct-Turbo"),
+        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
     )
