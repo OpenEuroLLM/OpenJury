@@ -73,10 +73,10 @@ def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
 
 def load_judge_system_and_user_prompt() -> tuple[str, str]:
     # Prepare judge
-    with open(Path(__file__).parent / "system-prompt.txt", "r") as f:
+    with open(Path(__file__).parent / "prompts" / "system-prompt.txt", "r") as f:
         system_prompt = str(f.read())
 
-    with open(Path(__file__).parent / "prompt.txt", "r") as f:
+    with open(Path(__file__).parent / "prompts" / "prompt.txt", "r") as f:
         user_prompt_template = str(f.read())
 
     return system_prompt, user_prompt_template
@@ -88,10 +88,21 @@ def evaluate_completions(
     # baseline to compare with and compute win-rate must be available in completions
     # TODO we could support loading local completions to compare two models as done in Aya
     method_A: str = "gpt4_1106_preview",
-    num_annotations: int | None = 50,
     method_B: str = "llama-2-70b-chat-hf",
+    num_annotations: int | None = 50,
     use_tqdm: bool = True,
 ):
+    """
+    :param dataset:
+    :param judge_chat_model:
+    :param method_A: one method to evaluate, can be a method existing in `dataset` or a local path to the completion
+    of a local method. The path should be a dataframe ending with ".csv.zip" or ".parquet", have columns
+    "instruction_index" and "output" and should contains all the instruction of `dataset`.
+    :param method_B:
+    :param num_annotations:
+    :param use_tqdm:
+    :return:
+    """
     assert dataset in ["alpaca-eval", "arena-hard"]
 
     local_path_tables = data_root / "tables"
@@ -108,15 +119,30 @@ def evaluate_completions(
     ).sort_index()
     instructions = df_instructions.loc[df_outputs.index, "instruction"]
 
-    def get_output(method: str):
-        assert (
-            method in df_outputs.columns
-        ), f"Method {method} not present, pick among {df_outputs.columns.tolist()}"
-        return df_outputs.loc[:, method].sort_index()
+    def get_output(df_outputs: pd.DataFrame, dataset: str, method: str):
+        # TODO allow to load local completions
+        if Path(method).exists():
+            print(f"Path {method} exists, loads local model completions.")
+            df = read_df(Path(method)).set_index("instruction_index").sort_index()
+            print(f"Loaded {len(df)} completions.")
+            return df.loc[:, "output"]
 
-    # TODO allow to load local completions
-    completions_baseline = get_output(method_A)
-    completions_method = get_output(method_B)
+        else:
+            print(f"Loading {method} from {dataset} dataset.")
+            assert (
+                method in df_outputs.columns
+            ), f"Method {method} not present, pick among {df_outputs.columns.tolist()}"
+            return df_outputs.loc[:, method].sort_index()
+
+    completions_baseline = get_output(
+        df_outputs=df_outputs, dataset=dataset, method=method_A
+    )
+    completions_method = get_output(
+        df_outputs=df_outputs, dataset=dataset, method=method_B
+    )
+    assert (
+        completions_baseline.index.tolist() == completions_method.index.tolist()
+    ), f"Index mismatch between methods {method_A} and {method_B}."
 
     annotations = annotate(
         judge_chat_model=judge_chat_model,
@@ -153,7 +179,7 @@ class JudgeAnnotation:
     preference: float
 
 
-def inference_with_tqdm(chat_model, inputs, use_tqdm: bool = True):
+def do_inference(chat_model, inputs, use_tqdm: bool = True):
     invoke_kwargs = {"stop": ["```"]}
     if use_tqdm:
 
@@ -189,6 +215,7 @@ def annotate(
     system_prompt: str | None = None,
     user_prompt_template: str = None,
     num_annotations: int | None = None,
+    max_len: int | None = 2000,
     use_tqdm: bool = True,
 ) -> list[JudgeAnnotation]:
     # alternatively pass list of tuples
@@ -211,12 +238,19 @@ def annotate(
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]
     )
+
+    def truncate(s: str, max_len: int | None = None):
+        if max_len is not None:
+            return s[:max_len]
+        else:
+            return s
+
     inputs = prompt_template.batch(
         [
             {
                 "user_prompt": user_prompt,
-                "completion_A": completion_A,
-                "completion_B": completion_B,
+                "completion_A": truncate(completion_A, max_len=max_len),
+                "completion_B": truncate(completion_A, max_len=max_len),
             }
             for user_prompt, completion_A, completion_B in zip(
                 user_prompts, completions_A, completions_B
@@ -224,16 +258,13 @@ def annotate(
         ]
     )
     # TODO handle errors
-
-    judge_completions = inference_with_tqdm(
+    print(f"Start LLM judge annotation ({len(inputs)} annotations).")
+    judge_completions = do_inference(
         chat_model=judge_chat_model,
         inputs=inputs,
         use_tqdm=use_tqdm,
     )
 
-    # judge_completions = judge_chat_model.batch(
-    #     inputs=inputs, stop=["```"],
-    # )
     annotations = []
     score_parser = PairScore()
     for judge_completion in judge_completions:
@@ -264,12 +295,12 @@ if __name__ == "__main__":
     print(annotations)
 
     judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
-    num_annotations = 100
+    num_annotations = 20
     evaluate_completions(
         dataset="alpaca-eval",
         num_annotations=num_annotations,
         method_A="gpt4_1106_preview",
-        method_B="Llama-3-Instruct-8B-SimPO",
+        method_B="../alpaca-eval-gpt-3.5-turbo.csv.zip",
         judge_chat_model=judge_chat_model,
         use_tqdm=False,
     )

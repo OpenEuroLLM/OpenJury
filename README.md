@@ -1,7 +1,6 @@
 # LLM-Judge evaluation
 
 TODOs:
-* support loading local completions
 * support m-arena-hard
 * support dumping outputs
 * test openai judge
@@ -18,4 +17,5 @@ Done:
 * test together judge
 * local env variable to set paths
 * tqdm callback with batch
+* support loading local completions
 
