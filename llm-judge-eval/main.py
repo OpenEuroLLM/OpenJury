@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_community.cache import SQLiteCache
 from langchain_community.llms import Together
 from langchain_core.globals import set_llm_cache
+from langchain_core.language_models.llms import LLM
 
 data_root = Path(
     os.environ.get("LLM_JUDGE_EVAL_DATA", "~/llm-judge-eval-data/")
@@ -84,13 +86,12 @@ def load_judge_system_and_user_prompt() -> tuple[str, str]:
 
 def evaluate_completions(
     dataset: str = "alpaca-eval",
-    judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    # baseline to compare with and compute win-rate must be available in completions
-    # TODO we could support loading local completions to compare two models as done in Aya
+    judge_chat_model: LLM = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
     method_A: str = "gpt4_1106_preview",
     method_B: str = "llama-2-70b-chat-hf",
     num_annotations: int | None = 50,
     use_tqdm: bool = True,
+    max_len: int | None = 2000,
 ):
     """
     :param dataset:
@@ -98,9 +99,11 @@ def evaluate_completions(
     :param method_A: one method to evaluate, can be a method existing in `dataset` or a local path to the completion
     of a local method. The path should be a dataframe ending with ".csv.zip" or ".parquet", have columns
     "instruction_index" and "output" and should contains all the instruction of `dataset`.
-    :param method_B:
-    :param num_annotations:
+    :param method_B: another method to evaluate against `method_A`
+    :param num_annotations: if specified will do at most `num_annotations` annotations
     :param use_tqdm:
+    :param max_len: if specified, truncates the length of completion, useful to save cost and avoid exceeding context
+    limit
     :return:
     """
     assert dataset in ["alpaca-eval", "arena-hard"]
@@ -120,7 +123,6 @@ def evaluate_completions(
     instructions = df_instructions.loc[df_outputs.index, "instruction"]
 
     def get_output(df_outputs: pd.DataFrame, dataset: str, method: str):
-        # TODO allow to load local completions
         if Path(method).exists():
             print(f"Path {method} exists, loads local model completions.")
             df = read_df(Path(method)).set_index("instruction_index").sort_index()
@@ -151,6 +153,7 @@ def evaluate_completions(
         completions_B=completions_method,
         num_annotations=num_annotations,
         use_tqdm=use_tqdm,
+        max_len=max_len,
     )
 
     print(annotations)
@@ -204,7 +207,7 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
             process_with_real_progress(chat_model=chat_model, inputs=inputs)
         )
     else:
-        return judge_chat_model.batch(inputs=inputs, **invoke_kwargs)
+        return chat_model.batch(inputs=inputs, **invoke_kwargs)
 
 
 def annotate(
@@ -257,7 +260,6 @@ def annotate(
             )
         ]
     )
-    # TODO handle errors
     print(f"Start LLM judge annotation ({len(inputs)} annotations).")
     judge_completions = do_inference(
         chat_model=judge_chat_model,
@@ -278,31 +280,86 @@ def annotate(
     return annotations
 
 
-if __name__ == "__main__":
-    # evaluate from list of instructions and completions
-    # Can also pass custom LLM judge prompts, if not passed uses defaults
-    # system_prompt, user_prompt_template = load_judge_system_and_user_prompt()
-    annotations = annotate(
-        # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
-        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-        # the instructions we want to evaluate
-        user_prompts=["Write numbers between 1 and 5."],
-        # the completions we want to evaluate for the first model
-        completions_A=["1 2 3 4 5."],
-        # the completions we want to evaluate for the second model
-        completions_B=["No"],
-    )
-    print(annotations)
+@dataclass
+class MainArgs:
+    dataset: str
+    method_A: str
+    method_B: str
+    judge_provider: str
+    judge_model: str
+    n_instructions: int | None = None
 
-    judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
+    @classmethod
+    def parse_args(cls):
+        parser = argparse.ArgumentParser(
+            prog="Evaluate LLM Judge on alpaca-eval, arena-hard, m-arena-hard",
+        )
+        parser.add_argument(
+            "--dataset",
+            help="The dataset to use",
+            default="arena-hard",
+            choices=["alpaca-eval", "arena-hard", "m-arena-hard"],
+        )
+        parser.add_argument(
+            "--method_A",
+            required=True,
+            help="one method to evaluate, can be a method existing in `dataset` or a local path to the completion of a "
+            'local method. The path should be a dataframe ending with ".csv.zip" or ".parquet", have columns '
+            "`instruction_index` and `output` and should contains all the instruction of `dataset`.",
+        )
+        parser.add_argument(
+            "--judge_provider",
+            required=True,
+            help="Type of judge to use",
+            choices=["Together", "OpenAI", "vLLM"],
+        )
+        parser.add_argument(
+            "--judge_model",
+            required=True,
+            help="Name of the LLM to use, must be a valid choice for `judge_provider`",
+        )
+
+        parser.add_argument(
+            "--n_instructions",
+            type=int,
+            required=False,
+        )
+        args = parser.parse_args()
+
+        return cls(
+            dataset=args.dataset,
+            method_A=args.method_A,
+            method_B=args.method_B,
+            judge_provider=args.judge_provider,
+            judge_model=args.judge_model,
+            n_instructions=args.n_instructions,
+        )
+
+
+if __name__ == "__main__":
+    # # evaluate from list of instructions and completions
+    # # Can also pass custom LLM judge prompts, if not passed uses defaults
+    # # system_prompt, user_prompt_template = load_judge_system_and_user_prompt()
+    # annotations = annotate(
+    #     # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
+    #     judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+    #     # the instructions we want to evaluate
+    #     user_prompts=["Write numbers between 1 and 5."],
+    #     # the completions we want to evaluate for the first model
+    #     completions_A=["1 2 3 4 5."],
+    #     # the completions we want to evaluate for the second model
+    #     completions_B=["No"],
+    # )
+    # print(annotations)
+
     num_annotations = 20
     evaluate_completions(
         dataset="alpaca-eval",
         num_annotations=num_annotations,
         method_A="gpt4_1106_preview",
         method_B="../alpaca-eval-gpt-3.5-turbo.csv.zip",
-        judge_chat_model=judge_chat_model,
-        use_tqdm=False,
+        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        use_tqdm=True,
     )
 
     # evaluate_completions(
@@ -310,5 +367,5 @@ if __name__ == "__main__":
     #     num_annotations=50,
     #     method_A="gpt-4-1106-preview",
     #     method_B="Llama-2-8b-chat-hf",
-    #     judge_chat_model=judge_chat_model,
+    #     judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
     # )
