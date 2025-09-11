@@ -5,6 +5,7 @@ from pathlib import Path
 from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
+from langchain_community.llms import LlamaCpp, Together
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
@@ -76,3 +77,10 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
         )
     else:
         return chat_model.batch(inputs=inputs, **invoke_kwargs)
+
+
+def make_model(model_provider: str, **kwargs):
+    model_classes = [LlamaCpp, Together]
+    model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
+    assert model_provider in model_cls_dict
+    return model_cls_dict[model_provider](**kwargs)

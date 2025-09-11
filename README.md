@@ -2,11 +2,22 @@
 
 
 Use-cases:
-* evaluate instruction-tuned vs base model
+* evaluate instruction-tuned vs base model [DONE]
 * evaluate one model easily against another on AE/AH/m-AH
 * easily swap judge model
 * common format for AE/AH/m-AH
 
+
+**Generate completions.**
+```bash
+python generate.py \
+--model_provider LlamaCpp \
+--model_kwargs model_path=jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf max_retries=3 \
+--output_path results/llama-3.2-3b-q8_0.csv.zip \
+--n_instructions 10
+```
+
+**Evaluate a model available in AlpacaEval against local predictions.**
 ```bash
 python llm-judge-eval/main.py \
 --dataset alpaca-eval \
@@ -17,21 +28,9 @@ python llm-judge-eval/main.py \
 --n_instructions 100
 ```
 
-```bash
-python llm-judge-eval/main.py \
---dataset m-arena-hard \
---domain fr \
---method_A gpt4_1106_preview \
---method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
---judge_provider Together \
---judge_model "meta-llama/Llama-3.3-70B-Instruct-Turbo" \
---n_instructions 100
-```
-
 
 TODOs:
 * support m-arena-hard [high/large]
-* support dumping outputs [medium/small]
 * support evaluation with input swap [medium/small]
 * test openai judge [medium/small]
 * test vLLM judge [medium/small]
@@ -51,4 +50,5 @@ Done:
 * local env variable to set paths
 * tqdm callback with batch
 * support loading local completions
-
+* support dumping outputs [medium/small]
+* test LlamaCpp [medium/small]

@@ -4,24 +4,20 @@ TODOs:
 * main with CLI
 Done:
 """
+import argparse
+import json
+from ast import literal_eval
 from pathlib import Path
 
 import pandas as pd
-from langchain_community.llms import LlamaCpp, Together
 from langchain.prompts import ChatPromptTemplate
 from llmjudgeeval.utils import (
     load_instructions,
     do_inference,
     data_root,
     set_langchain_cache,
+    make_model,
 )
-
-
-def make_model(model_provider: str, **kwargs):
-    assert model_provider in ["LlamaCpp", "Together"]
-    model_classes = [LlamaCpp, Together]
-    model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
-    return model_cls_dict[model_provider](**kwargs)
 
 
 def generate(
@@ -70,34 +66,61 @@ def generate(
 
     print(completions)
     if output_path is None:
-        output_path = data_root / "model-completions"
-    output_file = output_path / f"output.csv.zip"
+        output_path = (
+            data_root / "model-completions" / model_provider / "model_output.csv.zip"
+        )
+
     # TODO store model_kwargs and other in metadata.json in path?
     print(
-        f"Saving {len(completions)} completions from {model_provider} {model_kwargs} to {output_file}."
+        f"Saving {len(completions)} completions from {model_provider} {model_kwargs} to {output_path}."
     )
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df_outputs = pd.DataFrame(
         data={"output": completions, "instruction_index": instructions.index.tolist()},
-    ).to_csv(output_file, index=False)
+    )
+    df_outputs.to_csv(output_path, index=False)
 
 
 def main():
-    # TODO parse dataset, model_provider, model_kwargs, output_path, n_instructions from CLI with argparse.
-    set_langchain_cache()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="alpaca-eval")
+    parser.add_argument(
+        "--model_provider",
+        type=str,
+        default="LlamaCpp",
+        choices=["LlamaCpp", "Together"],
+    )
+    parser.add_argument(
+        "--model_kwargs",
+        nargs="+",
+        help="List of key-value pairs, e.g., --model_kwargs model_path=~/Llama-3.2-3B-Instruct-q8_0.gguf",
+    )
+    parser.add_argument("--output_path", type=Path, default=None)
+    parser.add_argument("--n_instructions", type=int, default=None)
+    parser.add_argument(
+        "--ignore_cache",
+        action="store_true",
+        help="If specified, will ignore langchain cache and regenerate all requests even those which were previously"
+        " submitted",
+    )
 
-    model_path = "/Users/salinasd/Library/Caches/llama.cpp/hugging-quants_Llama-3.2-3B-Instruct-Q8_0-GGUF_llama-3.2-3b-instruct-q8_0.gguf"
-    # model_path = "/Users/salinasd/Library/Caches/llama.cpp/jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf"
+    args = parser.parse_args()
+
+    model_kwargs_dict = {}
+    if args.model_kwargs:
+        for pair in args.model_kwargs:
+            key, value = pair.split("=")
+            model_kwargs_dict[key] = value
+
+    if not args.ignore_cache:
+        set_langchain_cache()
+
     generate(
-        dataset="alpaca-eval",
-        model_provider="LlamaCpp",
-        model_kwargs={
-            "model_path": model_path,
-        },
-        output_path=Path(
-            "results/hugging-quants_Llama-3.2-3B-Instruct-Q8_0-GGUF_llama-3.2-3b-instruct-q8_0.csv.zip"
-        ),
-        n_instructions=10,
+        dataset=args.dataset,
+        model_provider=args.model_provider,
+        model_kwargs=model_kwargs_dict,
+        output_path=args.output_path,
+        n_instructions=args.n_instructions,
     )
 
 
