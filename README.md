@@ -21,19 +21,21 @@ python generate.py \
 **Evaluate a model available in AlpacaEval against local predictions.**
 To run judge LLM evaluations, run something like this:
 ```bash
-python llm-judge-eval/evaluate.py \
+python llmjudgeeval/evaluate.py \
 --dataset alpaca-eval \
 --method_A gpt4_1106_preview \
 --method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
 --judge_provider Together \
---judge_model "meta-llama/Llama-3.3-70B-Instruct-Turbo" \
---n_instructions 100
+--judge_model meta-llama/Llama-3.3-70B-Instruct-Turbo \
+--n_instructions 10
 ```
+Note that the methods passed in `method_A` and `method_B` should be either a method existing in the
+dataset used or a local file containing instructions like `alpaca-eval-gpt-3.5-turbo.csv.zip`.
 
 TODOs:
 * support m-arena-hard [high/large]
 * support evaluation with input swap [medium/small]
-* test openai judge [medium/small]
+
 * test vLLM judge [medium/small]
 * handle errors [medium/small]
 * CLI launcher [medium/large]
@@ -53,3 +55,4 @@ Done:
 * support loading local completions
 * support dumping outputs [medium/small]
 * test LlamaCpp [medium/small]
+* test openai judge [medium/small]

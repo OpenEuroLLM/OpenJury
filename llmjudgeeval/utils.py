@@ -5,7 +5,9 @@ from pathlib import Path
 from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
-from langchain_community.llms import LlamaCpp, Together, OpenAI, VLLM
+from langchain_community.llms import LlamaCpp, VLLM
+from langchain_together.llms import Together
+from langchain_openai import ChatOpenAI, OpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
@@ -51,7 +53,10 @@ def load_instructions(dataset: str):
 
 
 def do_inference(chat_model, inputs, use_tqdm: bool = True):
-    invoke_kwargs = {"stop": ["```"]}
+    invoke_kwargs = {
+        # "stop": ["```"],
+        # "max_tokens": 100,
+    }
     if use_tqdm:
         # perform inference asynchronously to be able to update tqdm, chat_model.batch does not work as it blocks until
         # all requests are received
@@ -84,7 +89,8 @@ def make_model(model_provider: str, **kwargs):
     model_classes = [
         LlamaCpp,
         Together,
-        OpenAI,
+        # OpenAI,
+        ChatOpenAI,
         VLLM,
     ]
     model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}

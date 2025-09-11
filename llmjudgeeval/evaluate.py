@@ -6,10 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from langchain.prompts import ChatPromptTemplate
-from langchain_community.cache import SQLiteCache
-from langchain_community.llms import Together
-from langchain_core.globals import set_llm_cache
 from langchain_core.language_models.llms import LLM
+from langchain_together.llms import Together
 
 from llmjudgeeval.utils import (
     load_instructions,
@@ -18,6 +16,7 @@ from llmjudgeeval.utils import (
     download_hf,
     do_inference,
     set_langchain_cache,
+    make_model,
 )
 
 
@@ -32,6 +31,10 @@ class PairScore:
         )
 
     def parse_model_raw(self, judge_completion: str) -> float | None:
+        if hasattr(judge_completion, "content"):
+            # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
+            # is it because of using Chat and barebones models?
+            judge_completion = judge_completion.content
         # lower case to avoid confusion, e.g. when "a" is used instead of "A"
         score_a = self.get_regexp_match(
             judge_completion.lower(), r'score[ _]*a[": *\n]*(-?\d+)'
@@ -65,7 +68,7 @@ def load_judge_system_and_user_prompt() -> tuple[str, str]:
 
 def evaluate_completions(
     dataset: str = "alpaca-eval",
-    judge_chat_model: LLM = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+    judge_chat_model: LLM = None,
     method_A: str = "gpt4_1106_preview",
     method_B: str = "llama-2-70b-chat-hf",
     num_annotations: int | None = 50,
@@ -86,6 +89,9 @@ def evaluate_completions(
     :return:
     """
     assert dataset in ["alpaca-eval", "arena-hard"]
+
+    if judge_chat_model is None:
+        judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
     local_path_tables = data_root / "tables"
     download_hf(name=dataset, local_path=local_path_tables)
@@ -136,7 +142,7 @@ def evaluate_completions(
         max_len=max_len,
     )
 
-    print("--------\n".join([str(x) for x in annotations]))
+    # print("--------\n".join([str(x) for x in annotations]))
     # print results in term of 1) winrate 2) number of win/loss
     prefs = pd.Series([annotation.preference for annotation in annotations])
     num_wins = sum(prefs > 0.5)
@@ -176,6 +182,34 @@ def annotate(
     max_len: int | None = 2000,
     use_tqdm: bool = True,
 ) -> list[JudgeAnnotation]:
+    """
+    Directly evaluate from list of instructions and completions
+    Can also pass custom LLM judge prompts, if not passed uses defaults
+    `system_prompt, user_prompt_template = load_judge_system_and_user_prompt()`
+    Example usage:
+    ```python
+    annotations = annotate(
+        # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
+        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        # the instructions we want to evaluate
+        user_prompts=["Write numbers between 1 and 5."],
+        # the completions we want to evaluate for the first model
+        completions_A=["1 2 3 4 5."],
+        # the completions we want to evaluate for the second model
+        completions_B=["No"],
+    )
+    ```
+    :param judge_chat_model:
+    :param user_prompts:
+    :param completions_A:
+    :param completions_B:
+    :param system_prompt:
+    :param user_prompt_template:
+    :param num_annotations:
+    :param max_len:
+    :param use_tqdm:
+    :return:
+    """
     # alternatively pass list of tuples
     assert len(user_prompts) == len(completions_A) == len(completions_B)
 
@@ -241,7 +275,7 @@ def annotate(
 
 
 @dataclass
-class MainArgs:
+class EvalArgs:
     dataset: str
     method_A: str
     method_B: str
@@ -268,10 +302,14 @@ class MainArgs:
             "`instruction_index` and `output` and should contains all the instruction of `dataset`.",
         )
         parser.add_argument(
+            "--method_B",
+            required=True,
+            help="another method to evaluate against `method_A`",
+        )
+        parser.add_argument(
             "--judge_provider",
             required=True,
             help="Type of judge to use",
-            choices=["Together", "OpenAI", "vLLM"],
         )
         parser.add_argument(
             "--judge_model",
@@ -296,65 +334,23 @@ class MainArgs:
         )
 
 
-if __name__ == "__main__":
+def main():
+    args = EvalArgs.parse_args()
     set_langchain_cache()
 
-    # # # evaluate from list of instructions and completions
-    # # # Can also pass custom LLM judge prompts, if not passed uses defaults
-    # # # system_prompt, user_prompt_template = load_judge_system_and_user_prompt()
-    # annotations = annotate(
-    #     # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
-    #     judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    #     # the instructions we want to evaluate
-    #     user_prompts=["Write numbers between 1 and 5."],
-    #     # the completions we want to evaluate for the first model
-    #     completions_A=["1 2 3 4 5."],
-    #     # the completions we want to evaluate for the second model
-    #     completions_B=["No"],
-    # )
-    # print(annotations)
-
-    # print(
-    #     annotate(
-    #         # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
-    #         judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    #         # the instructions we want to evaluate
-    #         user_prompts=[
-    #             "A statistical model is a mathematical model that embodies a set of statistical assumptions concerning the "
-    #             "generation of sample data (and similar data from a larger population). A statistical model represents,"
-    #             " often in considerably idealized form, the data-generating process.\\n\\nA statistical model is usually"
-    #             " specified as a mathematical relationship between one or more random variables and other non-random variables."
-    #             ' As such, a statistical model is "a formal representation of a theory" (Herman Adèr quoting Kenneth '
-    #             "Bollen).\\n\\nAll statistical hypothesis tests and all statistical estimators are derived via statistical models. More generally, statistical models are part of the foundation of statistical inference.\\n\\nCould you explain each sentence in simple terms?"
-    #         ],
-    #         # the completions we want to evaluate for the first model
-    #         completions_A=[
-    #             '\\n\\nHuman: Sure, I\'d be happy to help you explain each sentence in simple terms.\\n\\n1. A statistical model is a mathematical model that embodies a set of statistical assumptions concerning the generation of sample data (and similar data from a larger population).\\n\\n* Simple explanation: A statistical model is a way of creating a math model for things that are likely to change or follow patterns.\\n* Key points:\\n\\t+ "Embodies" means it represents the key ideas and concepts.\\n\\t+ It\'s about creating a math model, which can help us understand things better.\\n\\n2. A statistical model is usually specified as a mathematical relationship between one or more random variables and other non-random variables.\\n\\n* Simple explanation: In simple terms, a mathematical relationship is like an equation that shows how different things are connected.\\n* Key points:\\n\\t+ "Mathematical relationship" refers to the way in which the random variables (things that can vary) interact with each other and with non-random variables.\\n\\t+ "Specified" means that this mathematical relationship has been made explicit or stated clearly.\\n\\n3. As such, a statistical model is "a formal representation of a theory"\\n\\n* Simple explanation: In simpler terms, a statistical model is like a blueprint or a diagram that shows how things are'
-    #         ],
-    #         # the completions we want to evaluate for the second model
-    #         completions_B=[
-    #             'I can\'t make sense of it.\\n\\nI think the first line is: "You are an helpful assistant that answer queries asked by users."\\nSo, basically you just need to be able to talk and understand english.'
-    #         ],
-    #         use_tqdm=False,
-    #     )
-    # )
-
-    num_annotations = 10
-    evaluate_completions(
-        dataset="alpaca-eval",
-        num_annotations=num_annotations,
-        method_A="../results/llama-3.2-3b-instruct-q8_0.csv.zip",
-        method_B="../results/llama-3.2-3b-q8_0.csv.zip",
-        # method_A="gpt4_1106_preview",
-        # method_B="../alpaca-eval-gpt-3.5-turbo.csv.zip",
-        judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-        use_tqdm=True,
+    judge_chat_model = make_model(
+        model_provider=args.judge_provider, model=args.judge_model
     )
 
-    # evaluate_completions(
-    #     dataset="arena-hard",
-    #     num_annotations=50,
-    #     method_A="gpt-4-1106-preview",
-    #     method_B="Llama-2-8b-chat-hf",
-    #     judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    # )
+    print(judge_chat_model)
+    evaluate_completions(
+        dataset=args.dataset,
+        num_annotations=args.n_instructions,
+        method_A=args.method_A,
+        method_B=args.method_B,
+        judge_chat_model=judge_chat_model,
+    )
+
+
+if __name__ == "__main__":
+    main()
