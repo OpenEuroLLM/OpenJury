@@ -26,21 +26,23 @@ def generate(
     model_kwargs: dict[str, str],
     output_path: Path = None,
     n_instructions: int | None = None,
+    max_len: int | None = 2000,
+    use_tqdm: bool = True,
+    system_prompt: str | None = None,
 ):
-    max_len = 2000
-    use_tqdm = False
-
     chat_model = make_model(model_provider=model_provider, **model_kwargs)
     instructions = load_instructions(dataset=dataset)
 
     if n_instructions is not None:
         instructions = instructions[:n_instructions]
 
-    # TODO prompt to generate instructions
-    system_prompt = "You are an helpful assistant that answer queries asked by users."
-    user_prompt_template = "{user_prompt}"
+    # TODO improve prompt to generate instructions
+    if system_prompt is None:
+        system_prompt = (
+            "You are an helpful assistant that answer queries asked by users."
+        )
     prompt_template = ChatPromptTemplate.from_messages(
-        [("system", system_prompt), ("user", user_prompt_template)]
+        [("system", system_prompt), ("user", "{user_prompt}")]
     )
 
     def truncate(s: str, max_len: int | None = None):
@@ -103,7 +105,11 @@ def main():
         help="If specified, will ignore langchain cache and regenerate all requests even those which were previously"
         " submitted",
     )
-
+    parser.add_argument(
+        "--use_tqdm",
+        action="store_true",
+        help="Option to activate tqdm, does not always work with some backend like LlamaCpp",
+    )
     args = parser.parse_args()
 
     model_kwargs_dict = {}
@@ -121,6 +127,7 @@ def main():
         model_kwargs=model_kwargs_dict,
         output_path=args.output_path,
         n_instructions=args.n_instructions,
+        use_tqdm=args.use_tqdm,
     )
 
 
