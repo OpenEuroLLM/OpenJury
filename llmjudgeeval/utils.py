@@ -1,0 +1,78 @@
+import asyncio
+import os
+from pathlib import Path
+
+from huggingface_hub import snapshot_download
+import pandas as pd
+from tqdm.asyncio import tqdm
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
+
+data_root = Path(
+    os.environ.get("LLM_JUDGE_EVAL_DATA", "~/llm-judge-eval-data/")
+).expanduser()
+
+
+def set_langchain_cache():
+    set_llm_cache(SQLiteCache(database_path=str(data_root / ".langchain.db")))
+
+
+def download_hf(name: str, local_path: Path):
+    local_path.mkdir(exist_ok=True, parents=True)
+    # downloads the model from huggingface into `local_path` folder
+    snapshot_download(
+        repo_id="geoalgo/llmjudge",
+        repo_type="dataset",
+        allow_patterns=f"*{name}*",
+        local_dir=local_path,
+        force_download=False,
+    )
+
+
+def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
+    assert filename.exists(), f"Dataframe file not found at {filename}"
+    if filename.name.endswith(".csv.zip") or filename.name.endswith(".csv"):
+        return pd.read_csv(filename, **pandas_kwargs)
+    else:
+        assert filename.name.endswith(".parquet"), f"Unsupported extension {filename}"
+        return pd.read_parquet(filename, **pandas_kwargs)
+
+
+def load_instructions(dataset: str):
+    local_path_tables = data_root / "tables"
+    download_hf(name=dataset, local_path=local_path_tables)
+    df_instructions = (
+        read_df(local_path_tables / "instructions" / f"{dataset}.csv")
+        .set_index("instruction_index")
+        .sort_index()
+    )
+    return df_instructions.loc[:, "instruction"]
+
+
+def do_inference(chat_model, inputs, use_tqdm: bool = True):
+    invoke_kwargs = {"stop": ["```"]}
+    if use_tqdm:
+        # perform inference asynchronously to be able to update tqdm, chat_model.batch does not work as it blocks until
+        # all requests are received
+        async def process_with_real_progress(chat_model, inputs):
+            async def process_single(input_item):
+                return await chat_model.ainvoke(input_item, **invoke_kwargs)
+
+            # Create all tasks
+            tasks = [asyncio.create_task(process_single(inp)) for inp in inputs]
+            results = []
+
+            # Track progress as tasks complete
+            with tqdm(total=len(inputs)) as pbar:
+                for task in asyncio.as_completed(tasks):
+                    result = await task
+                    results.append(result)
+                    pbar.update(1)
+
+            return results
+
+        return asyncio.run(
+            process_with_real_progress(chat_model=chat_model, inputs=inputs)
+        )
+    else:
+        return chat_model.batch(inputs=inputs, **invoke_kwargs)

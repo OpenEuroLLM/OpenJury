@@ -1,24 +1,24 @@
 import argparse
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-import asyncio
-from tqdm.asyncio import tqdm
+
 import numpy as np
 import pandas as pd
-from huggingface_hub import snapshot_download
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.cache import SQLiteCache
 from langchain_community.llms import Together
 from langchain_core.globals import set_llm_cache
 from langchain_core.language_models.llms import LLM
 
-data_root = Path(
-    os.environ.get("LLM_JUDGE_EVAL_DATA", "~/llm-judge-eval-data/")
-).expanduser()
-
-set_llm_cache(SQLiteCache(database_path=str(data_root / ".langchain.db")))
+from llmjudgeeval.utils import (
+    load_instructions,
+    read_df,
+    data_root,
+    download_hf,
+    do_inference,
+    set_langchain_cache,
+)
 
 
 class PairScore:
@@ -50,27 +50,6 @@ class PairScore:
             return None
         else:
             return float(m.group(group_index).strip(" "))
-
-
-def download_hf(name: str, local_path: Path):
-    local_path.mkdir(exist_ok=True, parents=True)
-    # downloads the model from huggingface into `local_path` folder
-    snapshot_download(
-        repo_id="geoalgo/llmjudge",
-        repo_type="dataset",
-        allow_patterns=f"*{name}*",
-        local_dir=local_path,
-        force_download=False,
-    )
-
-
-def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
-    assert filename.exists(), f"Dataframe file not found at {filename}"
-    if filename.name.endswith(".csv.zip") or filename.name.endswith(".csv"):
-        return pd.read_csv(filename, **pandas_kwargs)
-    else:
-        assert filename.name.endswith(".parquet"), f"Unsupported extension {filename}"
-        return pd.read_parquet(filename, **pandas_kwargs)
 
 
 def load_judge_system_and_user_prompt() -> tuple[str, str]:
@@ -111,16 +90,14 @@ def evaluate_completions(
     local_path_tables = data_root / "tables"
     download_hf(name=dataset, local_path=local_path_tables)
 
-    df_instructions = (
-        read_df(local_path_tables / "instructions" / f"{dataset}.csv")
-        .set_index("instruction_index")
-        .sort_index()
+    instructions = load_instructions(
+        dataset=dataset,
     )
     df_outputs = read_df(local_path_tables / "model_outputs" / f"{dataset}.csv.zip")
     df_outputs = df_outputs.pivot_table(
         index="instruction_index", columns="model", values="output", aggfunc="last"
     ).sort_index()
-    instructions = df_instructions.loc[df_outputs.index, "instruction"]
+    df_outputs = df_outputs.loc[instructions.index]
 
     def get_output(df_outputs: pd.DataFrame, dataset: str, method: str):
         if Path(method).exists():
@@ -180,34 +157,6 @@ def evaluate_completions(
 class JudgeAnnotation:
     judge_completion: str
     preference: float
-
-
-def do_inference(chat_model, inputs, use_tqdm: bool = True):
-    invoke_kwargs = {"stop": ["```"]}
-    if use_tqdm:
-
-        async def process_with_real_progress(chat_model, inputs):
-            async def process_single(input_item):
-                return await chat_model.ainvoke(input_item, **invoke_kwargs)
-
-            # Create all tasks
-            tasks = [asyncio.create_task(process_single(inp)) for inp in inputs]
-            results = []
-
-            # Track progress as tasks complete
-            with tqdm(total=len(inputs)) as pbar:
-                for task in asyncio.as_completed(tasks):
-                    result = await task
-                    results.append(result)
-                    pbar.update(1)
-
-            return results
-
-        return asyncio.run(
-            process_with_real_progress(chat_model=chat_model, inputs=inputs)
-        )
-    else:
-        return chat_model.batch(inputs=inputs, **invoke_kwargs)
 
 
 def annotate(
@@ -337,6 +286,8 @@ class MainArgs:
 
 
 if __name__ == "__main__":
+    set_langchain_cache()
+
     # # evaluate from list of instructions and completions
     # # Can also pass custom LLM judge prompts, if not passed uses defaults
     # # system_prompt, user_prompt_template = load_judge_system_and_user_prompt()
