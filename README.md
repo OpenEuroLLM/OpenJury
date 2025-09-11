@@ -35,12 +35,11 @@ dataset used or a local file containing instructions like `alpaca-eval-gpt-3.5-t
 TODOs:
 * support m-arena-hard [high/large]
 * support evaluation with input swap [medium/small]
-
 * test vLLM judge [medium/small]
 * handle errors [medium/small]
 * CLI launcher [medium/large]
 * document options [medium/large]
-* add example to generate and evaluate completions [medium/medium] 
+* add details to example to generate and evaluate completions [medium/medium] 
 * CI [high/large]
 * implement CI judge option
 * implement domain filter in CI (maybe pass a regexp by column?)
