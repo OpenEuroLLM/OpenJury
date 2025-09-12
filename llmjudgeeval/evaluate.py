@@ -9,8 +9,8 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 from langchain_together.llms import Together
 
+from llmjudgeeval.instruction_dataset import load_instructions
 from llmjudgeeval.utils import (
-    load_instructions,
     read_df,
     data_root,
     download_hf,

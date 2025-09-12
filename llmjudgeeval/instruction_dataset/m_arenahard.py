@@ -41,18 +41,8 @@ def load_m_arenahard(local_path, language: str | None = None):
             df["lang"] = lg
             df_union.append(df)
 
-    df_instructions = pd.concat(df_union, ignore_index=True)
-
-    df_instructions.rename(
-        {
-            "question_id": "instruction_index",
-            "prompt": "instruction",
-        },
-        axis=1,
-        inplace=True,
-    )
-    df_instructions = df_instructions.set_index("instruction_index").sort_index()
-    return df_instructions.loc[:, "instruction"]
+    assert len(df_union) > 0, f"Invalid language passed {language}"
+    return pd.concat(df_union, ignore_index=True)
 
 
 if __name__ == "__main__":

@@ -41,17 +41,6 @@ def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
         return pd.read_parquet(filename, **pandas_kwargs)
 
 
-def load_instructions(dataset: str):
-    local_path_tables = data_root / "tables"
-    download_hf(name=dataset, local_path=local_path_tables)
-    df_instructions = (
-        read_df(local_path_tables / "instructions" / f"{dataset}.csv")
-        .set_index("instruction_index")
-        .sort_index()
-    )
-    return df_instructions.loc[:, "instruction"]
-
-
 def do_inference(chat_model, inputs, use_tqdm: bool = True):
     invoke_kwargs = {
         # "stop": ["```"],
