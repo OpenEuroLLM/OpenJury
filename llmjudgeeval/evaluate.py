@@ -1,6 +1,8 @@
 import argparse
+import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -31,10 +33,6 @@ class PairScore:
         )
 
     def parse_model_raw(self, judge_completion: str) -> float | None:
-        if hasattr(judge_completion, "content"):
-            # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
-            # is it because of using Chat and barebones models?
-            judge_completion = judge_completion.content
         # lower case to avoid confusion, e.g. when "a" is used instead of "A"
         score_a = self.get_regexp_match(
             judge_completion.lower(), r'score[ _]*a[": *\n]*(-?\d+)'
@@ -55,12 +53,17 @@ class PairScore:
             return float(m.group(group_index).strip(" "))
 
 
-def load_judge_system_and_user_prompt() -> tuple[str, str]:
+def load_judge_system_and_user_prompt(
+    provide_explanation: bool = True,
+) -> tuple[str, str]:
     # Prepare judge
     with open(Path(__file__).parent / "prompts" / "system-prompt.txt", "r") as f:
         system_prompt = str(f.read())
 
-    with open(Path(__file__).parent / "prompts" / "prompt.txt", "r") as f:
+    prompt_filename = (
+        "prompt-with-explanation.txt" if provide_explanation else "prompt.txt"
+    )
+    with open(Path(__file__).parent / "prompts" / prompt_filename, "r") as f:
         user_prompt_template = str(f.read())
 
     return system_prompt, user_prompt_template
@@ -74,6 +77,7 @@ def evaluate_completions(
     num_annotations: int | None = 50,
     use_tqdm: bool = True,
     max_len: int | None = 2000,
+    provide_explanation: bool = False,
 ):
     """
     :param dataset:
@@ -88,7 +92,6 @@ def evaluate_completions(
     limit
     :return:
     """
-    assert dataset in ["alpaca-eval", "arena-hard"]
 
     if judge_chat_model is None:
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
@@ -99,13 +102,20 @@ def evaluate_completions(
     instructions = load_instructions(
         dataset=dataset,
     )
-    df_outputs = read_df(local_path_tables / "model_outputs" / f"{dataset}.csv.zip")
-    # empty strings are encoded as Nan in csv
-    df_outputs.loc[:, "output"] = df_outputs.loc[:, "output"].fillna("")
-    df_outputs = df_outputs.pivot_table(
-        index="instruction_index", columns="model", values="output", aggfunc="last"
-    ).sort_index()
-    df_outputs = df_outputs.loc[instructions.index]
+
+    # A bit ugly, only loads if local path exist as we do not have a local path of completion for cases such as
+    # m-arena-hard.
+    dataset_output_path = local_path_tables / "model_outputs" / f"{dataset}.csv.zip"
+    if dataset_output_path.exists():
+        df_outputs = read_df(dataset_output_path)
+        # empty strings are encoded as Nan in csv
+        df_outputs.loc[:, "output"] = df_outputs.loc[:, "output"].fillna("")
+        df_outputs = df_outputs.pivot_table(
+            index="instruction_index", columns="model", values="output", aggfunc="last"
+        ).sort_index()
+        df_outputs = df_outputs.loc[instructions.index]
+    else:
+        df_outputs = None
 
     def get_output(df_outputs: pd.DataFrame, dataset: str, method: str):
         if Path(method).exists():
@@ -114,7 +124,6 @@ def evaluate_completions(
             print(f"Loaded {len(df)} completions.")
             df.loc[:, "output"] = df.loc[:, "output"].fillna("")
             return df.loc[:, "output"]
-
         else:
             print(f"Loading {method} from {dataset} dataset.")
             assert (
@@ -140,13 +149,15 @@ def evaluate_completions(
         num_annotations=num_annotations,
         use_tqdm=use_tqdm,
         max_len=max_len,
+        provide_explanation=provide_explanation,
     )
 
     # print("--------\n".join([str(x) for x in annotations]))
     # print results in term of 1) winrate 2) number of win/loss
     prefs = pd.Series([annotation.preference for annotation in annotations])
-    num_wins = sum(prefs > 0.5)
-    num_losses = sum(prefs < 0.5)
+    print([annotation.judge_completion for annotation in annotations])
+    num_wins = sum(prefs < 0.5)
+    num_losses = sum(prefs > 0.5)
     num_ties = sum(prefs == 0.5)
     num_battles = len(prefs)
     winrate = float(num_wins / num_battles)
@@ -159,7 +170,15 @@ def evaluate_completions(
         "num_ties": num_ties,
     }
 
-    print(results)
+    print(f"{method_A} against {method_B}:\n{results}")
+
+    unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_folder = data_root / "judge-evals" / unique_string
+    print(f"Saving results in {output_folder}")
+    output_folder.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
+    with open(output_folder / "results.json", "w") as f:
+        json.dump(results, f)
 
 
 @dataclass
@@ -181,6 +200,7 @@ def annotate(
     num_annotations: int | None = None,
     max_len: int | None = 2000,
     use_tqdm: bool = True,
+    provide_explanation: bool = True,
 ) -> list[JudgeAnnotation]:
     """
     Directly evaluate from list of instructions and completions
@@ -199,6 +219,7 @@ def annotate(
         completions_B=["No"],
     )
     ```
+    :param provide_explanation:
     :param judge_chat_model:
     :param user_prompts:
     :param completions_A:
@@ -216,7 +237,7 @@ def annotate(
     (
         default_system_prompt,
         default_user_prompt_template,
-    ) = load_judge_system_and_user_prompt()
+    ) = load_judge_system_and_user_prompt(provide_explanation=provide_explanation)
     if system_prompt is None:
         system_prompt = default_system_prompt
     if user_prompt_template is None:
@@ -282,6 +303,7 @@ class EvalArgs:
     judge_provider: str
     judge_model: str
     n_instructions: int | None = None
+    provide_explanation: bool = False
 
     @classmethod
     def parse_args(cls):
@@ -292,7 +314,7 @@ class EvalArgs:
             "--dataset",
             help="The dataset to use",
             default="arena-hard",
-            choices=["alpaca-eval", "arena-hard", "m-arena-hard"],
+            # choices=["alpaca-eval", "arena-hard", "m-arena-hard"],
         )
         parser.add_argument(
             "--method_A",
@@ -322,6 +344,14 @@ class EvalArgs:
             type=int,
             required=False,
         )
+
+        parser.add_argument(
+            "--provide_explanation",
+            action="store_true",
+            help="If specified, judge will provide explanation before making a judgement. Does not necessarily improve"
+            "the accuracy of the judge but enables some result interpretation.",
+        )
+
         args = parser.parse_args()
 
         return cls(
@@ -331,6 +361,7 @@ class EvalArgs:
             judge_provider=args.judge_provider,
             judge_model=args.judge_model,
             n_instructions=args.n_instructions,
+            provide_explanation=args.provide_explanation,
         )
 
 
@@ -349,6 +380,7 @@ def main():
         method_A=args.method_A,
         method_B=args.method_B,
         judge_chat_model=judge_chat_model,
+        provide_explanation=args.provide_explanation,
     )
 
 

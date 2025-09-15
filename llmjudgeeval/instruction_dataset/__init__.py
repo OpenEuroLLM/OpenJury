@@ -54,4 +54,5 @@ def load_instructions(dataset: str):
         df_instructions = read_df(local_path_tables / "instructions" / f"{dataset}.csv")
 
     df_instructions = df_instructions.set_index("instruction_index").sort_index()
+    print(f"Loaded {len(df_instructions)} instructions for {dataset}.")
     return df_instructions.loc[:, "instruction"]

@@ -61,6 +61,11 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
             with tqdm(total=len(inputs)) as pbar:
                 for task in asyncio.as_completed(tasks):
                     result = await task
+                    # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
+                    # is it because of using Chat and barebones models?
+                    # when using OpenAI, the output is AIMessage not a string...
+                    if hasattr(result, "content"):
+                        result = result.content
                     results.append(result)
                     pbar.update(1)
 

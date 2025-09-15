@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pandas as pd
 from langchain.prompts import ChatPromptTemplate
+
+from llmjudgeeval.instruction_dataset import load_instructions
 from llmjudgeeval.utils import (
-    load_instructions,
     do_inference,
     data_root,
     set_langchain_cache,
@@ -85,12 +86,11 @@ def generate(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="alpaca-eval")
+    parser.add_argument("--dataset", type=str)
     parser.add_argument(
         "--model_provider",
         type=str,
-        default="LlamaCpp",
-        choices=["LlamaCpp", "Together"],
+        choices=["LlamaCpp", "Together", "ChatOpenAI", "VLLM"],
     )
     parser.add_argument(
         "--model_kwargs",
