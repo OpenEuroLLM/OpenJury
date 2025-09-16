@@ -92,10 +92,6 @@ def evaluate_completions(
     limit
     :return:
     """
-
-    if judge_chat_model is None:
-        judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
-
     local_path_tables = data_root / "tables"
     download_hf(name=dataset, local_path=local_path_tables)
 
@@ -140,6 +136,9 @@ def evaluate_completions(
     assert (
         completions_A.index.tolist() == completions_B.index.tolist()
     ), f"Index mismatch between methods {method_A} and {method_B}."
+
+    if judge_chat_model is None:
+        judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
     annotations = annotate(
         judge_chat_model=judge_chat_model,
