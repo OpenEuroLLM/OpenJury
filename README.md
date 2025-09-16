@@ -39,7 +39,7 @@ python llmjudgeeval/evaluate.py \
 --method_A gpt4_1106_preview \
 --method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
 --judge_provider VLLM \
---judge_model meta-llama/Llama-3.1-8B-Instruct \
+--judge_model meta-llama/Meta-Llama-3-8B-instruct \
 --n_instructions 10
 ```
 

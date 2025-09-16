@@ -31,8 +31,8 @@ def generate(
     use_tqdm: bool = True,
     system_prompt: str | None = None,
 ):
-    chat_model = make_model(model_provider=model_provider, **model_kwargs)
     instructions = load_instructions(dataset=dataset)
+    chat_model = make_model(model_provider=model_provider, **model_kwargs)
 
     if n_instructions is not None:
         instructions = instructions[:n_instructions]
