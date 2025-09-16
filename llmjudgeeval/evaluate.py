@@ -375,7 +375,7 @@ class EvalArgs:
 def main():
     args = EvalArgs.parse_args()
 
-    if args.ignore_cache:
+    if not args.ignore_cache:
         set_langchain_cache()
 
     judge_chat_model = make_model(
