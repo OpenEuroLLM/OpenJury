@@ -304,6 +304,7 @@ class EvalArgs:
     judge_model: str
     n_instructions: int | None = None
     provide_explanation: bool = False
+    ignore_cache: bool = False
 
     @classmethod
     def parse_args(cls):
@@ -367,6 +368,7 @@ class EvalArgs:
             judge_model=args.judge_model,
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
+            ignore_cache=args.ignore_cache,
         )
 
 
