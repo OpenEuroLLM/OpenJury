@@ -351,6 +351,11 @@ class EvalArgs:
             help="If specified, judge will provide explanation before making a judgement. Does not necessarily improve"
             "the accuracy of the judge but enables some result interpretation.",
         )
+        parser.add_argument(
+            "--ignore_cache",
+            action="store_true",
+            help="If specified, ignore cache of previous completions.",
+        )
 
         args = parser.parse_args()
 
@@ -367,7 +372,9 @@ class EvalArgs:
 
 def main():
     args = EvalArgs.parse_args()
-    set_langchain_cache()
+
+    if args.ignore_cache:
+        set_langchain_cache()
 
     judge_chat_model = make_model(
         model_provider=args.judge_provider, model=args.judge_model

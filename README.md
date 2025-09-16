@@ -32,6 +32,17 @@ python llmjudgeeval/evaluate.py \
 Note that the methods passed in `method_A` and `method_B` should be either a method existing in the
 dataset used or a local file containing instructions like `alpaca-eval-gpt-3.5-turbo.csv.zip`.
 
+To run on `VLLM`, just change the model-provider, see other options supported (LlamaCpp, ChatOpenAI, ...). 
+```bash
+python llmjudgeeval/evaluate.py \
+--dataset alpaca-eval \
+--method_A gpt4_1106_preview \
+--method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
+--judge_provider VLLM \
+--judge_model meta-llama/Llama-3.1-8B-Instruct \
+--n_instructions 10
+```
+
 TODOs:
 * support m-arena-hard [high/large]
   * instruction loader [DONE]
