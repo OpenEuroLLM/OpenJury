@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
-from langchain_together.llms import Together
 
 from llmjudgeeval.instruction_dataset import load_instructions
 from llmjudgeeval.utils import (
@@ -138,6 +137,8 @@ def evaluate_completions(
     ), f"Index mismatch between methods {method_A} and {method_B}."
 
     if judge_chat_model is None:
+        from langchain_together.llms import Together
+
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
     annotations = annotate(
