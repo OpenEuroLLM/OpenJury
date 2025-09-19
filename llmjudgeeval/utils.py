@@ -11,8 +11,6 @@ from langchain_openai import ChatOpenAI, OpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
-from llmjudgeeval.instruction_dataset import load_instructions
-
 data_root = Path(
     os.environ.get("LLM_JUDGE_EVAL_DATA", Path("~/llm-judge-eval-data/").expanduser())
 ).expanduser()
@@ -98,6 +96,3 @@ def download_all():
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)
-        instructions = load_instructions(
-            dataset=dataset,
-        )
