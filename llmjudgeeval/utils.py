@@ -11,8 +11,10 @@ from langchain_openai import ChatOpenAI, OpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
+from llmjudgeeval.instruction_dataset import load_instructions
+
 data_root = Path(
-    os.environ.get("LLM_JUDGE_EVAL_DATA", "~/llm-judge-eval-data/")
+    os.environ.get("LLM_JUDGE_EVAL_DATA", Path("~/llm-judge-eval-data/").expanduser())
 ).expanduser()
 
 
@@ -90,3 +92,12 @@ def make_model(model_provider: str, **kwargs):
     model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
     assert model_provider in model_cls_dict
     return model_cls_dict[model_provider](**kwargs)
+
+
+def download_all():
+    for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
+        local_path_tables = data_root / "tables"
+        download_hf(name=dataset, local_path=local_path_tables)
+        instructions = load_instructions(
+            dataset=dataset,
+        )
