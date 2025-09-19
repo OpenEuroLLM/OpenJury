@@ -6,7 +6,6 @@ from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
 from langchain_community.llms import LlamaCpp, VLLM
-from langchain_together.llms import Together
 from langchain_openai import ChatOpenAI, OpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
@@ -80,9 +79,15 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
 
 def make_model(model_provider: str, **kwargs):
     # TODO get the list of classes programmatically rather
+    if model_provider == "Together":
+        # avoid importing together for dependencies conflict
+        from langchain_together.llms import Together
+
+        return Together(**kwargs)
+
     model_classes = [
         LlamaCpp,
-        Together,
+        # Together,
         # OpenAI,
         ChatOpenAI,
         VLLM,
