@@ -6,7 +6,7 @@ from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
 from langchain_community.llms import LlamaCpp, VLLM
-from langchain_openai import ChatOpenAI, OpenAI
+from langchain_openai import ChatOpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 

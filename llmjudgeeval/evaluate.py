@@ -74,7 +74,7 @@ def evaluate_completions(
     method_A: str = "gpt4_1106_preview",
     method_B: str = "llama-2-70b-chat-hf",
     num_annotations: int | None = 50,
-    use_tqdm: bool = True,
+    use_tqdm: bool = False,
     max_len: int | None = 2000,
     provide_explanation: bool = False,
 ):
@@ -199,7 +199,7 @@ def annotate(
     user_prompt_template: str = None,
     num_annotations: int | None = None,
     max_len: int | None = 2000,
-    use_tqdm: bool = True,
+    use_tqdm: bool = False,
     provide_explanation: bool = True,
 ) -> list[JudgeAnnotation]:
     """
