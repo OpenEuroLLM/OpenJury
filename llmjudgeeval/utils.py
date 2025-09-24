@@ -1,6 +1,8 @@
+import time
 import asyncio
 import os
 from pathlib import Path
+from typing import Callable
 
 from huggingface_hub import snapshot_download
 import pandas as pd
@@ -60,40 +62,50 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
             with tqdm(total=len(inputs)) as pbar:
                 for task in asyncio.as_completed(tasks):
                     result = await task
-                    # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
-                    # is it because of using Chat and barebones models?
-                    # when using OpenAI, the output is AIMessage not a string...
-                    if hasattr(result, "content"):
-                        result = result.content
                     results.append(result)
                     pbar.update(1)
 
             return results
 
-        return asyncio.run(
+        res = asyncio.run(
             process_with_real_progress(chat_model=chat_model, inputs=inputs)
         )
     else:
-        return chat_model.batch(inputs=inputs, **invoke_kwargs)
+        res = chat_model.batch(inputs=inputs, **invoke_kwargs)
+
+    # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
+    # is it because of using Chat and barebones models?
+    # when using OpenAI, the output is AIMessage not a string...
+    res = [x.content if hasattr(x, "content") else x for x in res]
+    return res
 
 
-def make_model(model_provider: str, **kwargs):
-    # TODO get the list of classes programmatically rather
-    if model_provider == "Together":
-        # avoid importing together for dependencies conflict
-        from langchain_together.llms import Together
-
-        return Together(**kwargs)
-
+def make_model(model: str):
+    model_provider = model.split("/")[0]
+    model_name = "/".join(model.split("/")[1:])
+    print(f"Loading {model_provider}(model={model_name})")
     model_classes = [
         LlamaCpp,
-        # Together,
-        # OpenAI,
         ChatOpenAI,
         VLLM,
     ]
+    kwargs = {"model": model_name}
+    try:
+        from langchain_together.llms import Together
+
+        model_classes.append(Together)
+    except ImportError:
+        pass
+    try:
+        from langchain_openai.llms import OpenAI
+
+        model_classes.append(OpenAI)
+    except ImportError:
+        pass
     model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
-    assert model_provider in model_cls_dict
+    assert (
+        model_provider in model_cls_dict
+    ), f"{model_provider} not available, choose among {list(model_cls_dict.keys())}"
     return model_cls_dict[model_provider](**kwargs)
 
 
@@ -101,3 +113,59 @@ def download_all():
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)
+
+
+class Timeblock:
+    """Timer context manager"""
+
+    def __init__(self, name: str | None = None, verbose: bool = True):
+        self.name = name
+        self.verbose = verbose
+
+    def __enter__(self):
+        """Start a new timer as a context manager"""
+        self.start = time.time()
+        return self
+
+    def __exit__(self, *args):
+        """Stop the context manager timer"""
+        self.end = time.time()
+        self.duration = self.end - self.start
+        if self.verbose:
+            print(self)
+
+    def __str__(self):
+        name = self.name if self.name else "block"
+        msg = f"{name} took {self.duration} seconds"
+        return msg
+
+
+def cache_function_dataframe(
+    fun: Callable[[], pd.DataFrame],
+    cache_name: str,
+    ignore_cache: bool = False,
+    cache_path: Path | None = None,
+):
+    f"""
+    :param fun: a function whose dataframe result obtained `fun()` will be cached
+    :param cache_name: the cache of the function result is written into `{cache_path}/{cache_name}.csv.zip`
+    :param ignore_cache: whether to recompute even if the cache is present
+    :param cache_path: folder where to write cache files, default to ~/cache-zeroshot/
+    :return: result of fun()
+    """
+    if cache_path is None:
+        cache_path = data_root / "cache"
+    cache_file = cache_path / (cache_name + ".csv.zip")
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    if cache_file.exists() and not ignore_cache:
+        print(f"Loading cache {cache_file}")
+        return pd.read_csv(cache_file)
+    else:
+        print(
+            f"Cache {cache_file} not found or ignore_cache set to True, regenerating the file"
+        )
+        with Timeblock("Evaluate function."):
+            df = fun()
+            assert isinstance(df, pd.DataFrame)
+            df.to_csv(cache_file, index=False)
+            return pd.read_csv(cache_file)

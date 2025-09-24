@@ -1,8 +1,9 @@
+import pandas as pd
 from llmjudgeeval.instruction_dataset.m_arenahard import load_m_arenahard
 from llmjudgeeval.utils import data_root, download_hf, read_df
 
 
-def load_instructions(dataset: str):
+def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Series:
     if "m-arena-hard" in dataset:
         if dataset == "m-arena-hard":
             language = None
@@ -55,4 +56,11 @@ def load_instructions(dataset: str):
 
     df_instructions = df_instructions.set_index("instruction_index").sort_index()
     print(f"Loaded {len(df_instructions)} instructions for {dataset}.")
-    return df_instructions.loc[:, "instruction"]
+    if n_instructions is None:
+        n_instructions = len(df_instructions)
+    return df_instructions.loc[:, "instruction"].head(n_instructions)
+
+
+if __name__ == "__main__":
+    instructions = load_instructions(dataset="alpaca-eval")
+    print(instructions)

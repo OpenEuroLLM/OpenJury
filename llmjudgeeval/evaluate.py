@@ -155,7 +155,6 @@ def evaluate_completions(
     # print("--------\n".join([str(x) for x in annotations]))
     # print results in term of 1) winrate 2) number of win/loss
     prefs = pd.Series([annotation.preference for annotation in annotations])
-    print([annotation.judge_completion for annotation in annotations])
     num_wins = sum(prefs < 0.5)
     num_losses = sum(prefs > 0.5)
     num_ties = sum(prefs == 0.5)
@@ -171,6 +170,7 @@ def evaluate_completions(
     }
 
     print(f"{method_A} against {method_B}:\n{results}")
+    print([annotation.preference for annotation in annotations])
 
     unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
     output_folder = data_root / "judge-evals" / unique_string
@@ -300,7 +300,6 @@ class EvalArgs:
     dataset: str
     method_A: str
     method_B: str
-    judge_provider: str
     judge_model: str
     n_instructions: int | None = None
     provide_explanation: bool = False
@@ -329,15 +328,11 @@ class EvalArgs:
             required=True,
             help="another method to evaluate against `method_A`",
         )
-        parser.add_argument(
-            "--judge_provider",
-            required=True,
-            help="Type of judge to use",
-        )
+
         parser.add_argument(
             "--judge_model",
             required=True,
-            help="Name of the LLM to use, must be a valid choice for `judge_provider`",
+            help="Name of the LLM to use, for instance `ChatOpenAI/gpt-5-nano`",
         )
 
         parser.add_argument(
@@ -364,7 +359,6 @@ class EvalArgs:
             dataset=args.dataset,
             method_A=args.method_A,
             method_B=args.method_B,
-            judge_provider=args.judge_provider,
             judge_model=args.judge_model,
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
@@ -378,9 +372,7 @@ def main():
     if not args.ignore_cache:
         set_langchain_cache()
 
-    judge_chat_model = make_model(
-        model_provider=args.judge_provider, model=args.judge_model
-    )
+    judge_chat_model = make_model(model=args.judge_model)
 
     print(judge_chat_model)
     evaluate_completions(

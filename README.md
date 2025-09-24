@@ -12,8 +12,8 @@ should be usable in theory (I only tested LlamaCpp and Together, I plan to also 
 **Generate completions.** To generate completions, run something like this:
 ```bash
 python generate.py \
---model_provider LlamaCpp \
---model_kwargs model_path=jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf max_retries=3 \
+--dataset alpaca-eval \
+--model Together/meta-llama/Llama-3.3-70B-Instruct-Turbo \
 --output_path results/llama-3.2-3b-q8_0.csv.zip \
 --n_instructions 10
 ```
@@ -25,21 +25,25 @@ python llmjudgeeval/evaluate.py \
 --dataset alpaca-eval \
 --method_A gpt4_1106_preview \
 --method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
---judge_provider Together \
---judge_model meta-llama/Llama-3.3-70B-Instruct-Turbo \
+--judge_model Together/meta-llama/Llama-3.3-70B-Instruct-Turbo \
 --n_instructions 10
 ```
 Note that the methods passed in `method_A` and `method_B` should be either a method existing in the
 dataset used or a local file containing instructions like `alpaca-eval-gpt-3.5-turbo.csv.zip`.
 
-To run on `VLLM`, just change the model-provider, see other options supported (LlamaCpp, ChatOpenAI, ...). 
+To choose a model, you need to pass first the LangChain backend (LlamaCpp, ChatOpenAI, VLLM, Together...).
+Here are examples with different providers:
+* Together/meta-llama/Llama-3.3-70B-Instruct-Turbo 
+* ChatOpenAI/gpt-5-nano
+* LlamaCpp/jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf
+
+and an example to call llm-judge with a judge running locally on VLLM:
 ```bash
 python llmjudgeeval/evaluate.py \
 --dataset alpaca-eval \
 --method_A gpt4_1106_preview \
 --method_B alpaca-eval-gpt-3.5-turbo.csv.zip \
---judge_provider VLLM \
---judge_model meta-llama/Meta-Llama-3-8B-instruct \
+--judge_model VLLM/meta-llama/Meta-Llama-3-8B-instruct \
 --n_instructions 10
 ```
 
@@ -49,9 +53,7 @@ TODOs:
   * generate instructions for two models 
   * make comparison
 * support evaluation with input swap [medium/small]
-* test vLLM judge [medium/small]
 * handle errors [medium/small]
-* CLI launcher [medium/large]
 * document options [medium/large]
 * add details to example to generate and evaluate completions [medium/medium] 
 * CI [high/large]
@@ -69,3 +71,5 @@ Done:
 * support dumping outputs [medium/small]
 * test LlamaCpp [medium/small]
 * test openai judge [medium/small]
+* test vLLM judge [medium/small]
+* CLI launcher [medium/large]
