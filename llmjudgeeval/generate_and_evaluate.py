@@ -143,20 +143,18 @@ def main():
             instructions=instructions,
             model=args.generation_model_A,
             n_instructions=n_instructions,
-            use_tqdm=False,
-            system_prompt="Please complete the following text. Just output the completion and nothing else. Do not output more than 3 sentences.",
+            # system_prompt="Please complete the following text. Just output the completion and nothing else. Do not output more than 3 sentences.",
         ),
         ignore_cache=ignore_cache,
         cache_name=f"{args.dataset}_{args.generation_model_A}_{args.n_instructions}",
     ).set_index("instruction_index")
     completions_A = completions_A.loc[:, "completion"]
     completions_B = cache_function_dataframe(
-        lambda: generate(
+        lambda: generate_base(
             instructions=instructions,
             model=args.generation_model_B,
             n_instructions=n_instructions,
-            use_tqdm=False,
-            system_prompt="Please complete the following text. Do not output more than 3 sentences.",
+            # system_prompt="Please complete the following text. Do not output more than 3 sentences.",
         ),
         ignore_cache=ignore_cache,
         cache_name=f"{args.dataset}_{args.generation_model_B}_{args.n_instructions}",
