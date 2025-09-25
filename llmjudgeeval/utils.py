@@ -80,8 +80,14 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
     return res
 
 
-def make_model(model: str):
+def make_model(model: str, max_len: int | None = 200):
     model_provider = model.split("/")[0]
+    model_kwargs = {}
+    if model_provider == "Together":
+        if max_len is not None:
+            # TODO allow to specify kwargs in model string
+            model_kwargs["max_tokens"] = max_len
+
     model_name = "/".join(model.split("/")[1:])
     print(f"Loading {model_provider}(model={model_name})")
     model_classes = [
@@ -89,7 +95,7 @@ def make_model(model: str):
         ChatOpenAI,
         VLLM,
     ]
-    kwargs = {"model": model_name}
+    model_kwargs["model"] = model_name
     try:
         from langchain_together.llms import Together
 
@@ -106,7 +112,7 @@ def make_model(model: str):
     assert (
         model_provider in model_cls_dict
     ), f"{model_provider} not available, choose among {list(model_cls_dict.keys())}"
-    return model_cls_dict[model_provider](**kwargs)
+    return model_cls_dict[model_provider](**model_kwargs)
 
 
 def download_all():

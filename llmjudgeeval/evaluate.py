@@ -197,7 +197,6 @@ def annotate(
     completions_B: list[str],
     system_prompt: str | None = None,
     user_prompt_template: str = None,
-    num_annotations: int | None = None,
     max_len: int | None = 2000,
     use_tqdm: bool = False,
     provide_explanation: bool = True,
@@ -242,11 +241,6 @@ def annotate(
         system_prompt = default_system_prompt
     if user_prompt_template is None:
         user_prompt_template = default_user_prompt_template
-
-    if num_annotations is not None:
-        user_prompts = user_prompts[:num_annotations]
-        completions_A = completions_A[:num_annotations]
-        completions_B = completions_B[:num_annotations]
 
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]

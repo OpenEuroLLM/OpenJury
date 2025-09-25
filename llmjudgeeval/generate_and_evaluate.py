@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from llmjudgeeval.evaluate import annotate
-from llmjudgeeval.generate import generate
+from llmjudgeeval.generate import generate, generate_base
 from llmjudgeeval.utils import make_model, set_langchain_cache, cache_function_dataframe
 
 
@@ -122,59 +122,98 @@ def main():
     """
     args = CliArgs.parse_args()
 
-    if not args.ignore_cache:
-        set_langchain_cache()
+    # Not working with vllm, not detecting model changes and serving the same cache for two different models...
+    # if not args.ignore_cache:
+    #     set_langchain_cache()
 
     instructions = load_contexts(args.dataset + ".csv")
+
+    n_instructions = args.n_instructions if args.n_instructions else len(instructions)
     if args.n_instructions is not None:
-        instructions = instructions[: args.n_instructions]
+        instructions = instructions[:n_instructions]
 
     print(
         f"Generating completions for dataset {args.dataset} with model {args.generation_model_A} and "
         f"{args.generation_model_B} (or loading them directly if present)"
     )
     # TODO check if local file present
+    ignore_cache = False
     completions_A = cache_function_dataframe(
-        lambda: generate(
+        lambda: generate_base(
             instructions=instructions,
             model=args.generation_model_A,
-            n_instructions=args.n_instructions,
+            n_instructions=n_instructions,
             use_tqdm=False,
+            system_prompt="Please complete the following text. Just output the completion and nothing else. Do not output more than 3 sentences.",
         ),
-        ignore_cache=True,
-        cache_name=args.dataset + "_" + args.generation_model_A,
+        ignore_cache=ignore_cache,
+        cache_name=f"{args.dataset}_{args.generation_model_A}_{args.n_instructions}",
     ).set_index("instruction_index")
-
+    completions_A = completions_A.loc[:, "completion"]
     completions_B = cache_function_dataframe(
         lambda: generate(
             instructions=instructions,
             model=args.generation_model_B,
-            n_instructions=args.n_instructions,
+            n_instructions=n_instructions,
             use_tqdm=False,
+            system_prompt="Please complete the following text. Do not output more than 3 sentences.",
         ),
-        ignore_cache=True,
-        cache_name=args.dataset + "_" + args.generation_model_B,
+        ignore_cache=ignore_cache,
+        cache_name=f"{args.dataset}_{args.generation_model_B}_{args.n_instructions}",
     ).set_index("instruction_index")
+    completions_B = completions_B.loc[:, "completion"]
+    print(f"\nFirst context: {instructions.values[0]}")
 
+    print(f"\nFirst completion of {args.generation_model_A}")
+    print(completions_A.values[0])
+    print(f"\nFirst completion of {args.generation_model_B}")
+    print(completions_B.values[0])
     print(f"Evaluating completions with judge {args.judge_model}.")
-    annotations = generate_judge_annotations(
-        instructions=instructions.tolist(),
-        completions_A=completions_A.loc[instructions.index, "completion"].tolist(),
-        completions_B=completions_B.loc[instructions.index, "completion"].tolist(),
-        judge_model=args.judge_model,
-        n_instructions=args.n_instructions,
+
+    judge_chat_model = make_model(model=args.judge_model, max_len=200)
+    system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
+    model based on the quality of completion of a sentence. You will be a sentence to be completed and two \
+    completions from Assistant A and Assistant B and will have to decide which one was best. Make sure to not \
+    over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
+    the ordering or on the length of the answers."""
+
+    annotations = annotate(
+        judge_chat_model=judge_chat_model,
+        user_prompts=instructions.head(n_instructions).tolist(),
+        completions_A=completions_A.head(n_instructions).tolist(),
+        completions_B=completions_B.head(n_instructions).tolist(),
         provide_explanation=args.provide_explanation,
+        system_prompt=system_prompt,
+        max_len=200,
     )
 
-    name = (
-        f"{args.dataset}-{args.generation_model_A}-{args.generation_model_B}".replace(
-            "/", "_"
-        )
+    name = f"{args.dataset}-{args.generation_model_A}-{args.generation_model_B}-{args.judge_model}".replace(
+        "/", "_"
     )
     output_path = Path("results") / f"{name}-annotations.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Saving annotations to {output_path}")
     pd.DataFrame(annotations).to_csv(output_path, index=False)
+
+    prefs = pd.Series([annotation.preference for annotation in annotations])
+    num_wins = sum(prefs < 0.5)
+    num_losses = sum(prefs > 0.5)
+    num_ties = sum(prefs == 0.5)
+    num_battles = len(prefs)
+    winrate = float(num_wins / num_battles)
+
+    results = {
+        "num_battles": num_battles,
+        "winrate": winrate,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+    }
+    print(
+        f"{args.generation_model_A} vs {args.generation_model_B} judged by {args.judge_model}"
+    )
+    print(results)
+    print([annotation.preference for annotation in annotations])
 
 
 if __name__ == "__main__":
