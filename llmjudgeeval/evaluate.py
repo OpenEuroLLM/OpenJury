@@ -247,6 +247,8 @@ def annotate(
     )
 
     def truncate(s: str, max_len: int | None = None):
+        if not isinstance(s, str):
+            return ""
         if max_len is not None:
             return s[:max_len]
         else:

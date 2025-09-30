@@ -79,31 +79,6 @@ class CliArgs:
         )
 
 
-def generate_judge_annotations(
-    instructions: list[str],
-    completions_A: list[str],
-    completions_B: list[str],
-    judge_model: str,
-    n_instructions: int | None = None,
-    provide_explanation: bool = False,
-) -> list:
-    print(f"Generating annotations with judge {judge_model}")
-
-    # Generate completions for a reference model
-
-    judge_chat_model = make_model(model=judge_model)
-
-    annotations = annotate(
-        judge_chat_model=judge_chat_model,
-        user_prompts=instructions,
-        completions_A=completions_A,
-        completions_B=completions_B,
-        num_annotations=n_instructions,
-        provide_explanation=provide_explanation,
-    )
-    return annotations
-
-
 def load_contexts(dataset: str) -> pd.Series:
     path = Path(__file__).parent.parent / "data" / dataset
     return pd.read_csv(path).loc[:, "instruction"]
@@ -168,7 +143,10 @@ def main():
     print(completions_B.values[0])
     print(f"Evaluating completions with judge {args.judge_model}.")
 
-    judge_chat_model = make_model(model=args.judge_model, max_len=200)
+    judge_chat_model = make_model(
+        model=args.judge_model,
+        max_tokens=512,
+    )
     system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
     model based on the quality of completion of a sentence. You will be a sentence to be completed and two \
     completions from Assistant A and Assistant B and will have to decide which one was best. Make sure to not \

@@ -33,7 +33,7 @@ def generate(
     use_tqdm: bool = True,
     system_prompt: str | None = None,
 ) -> pd.DataFrame:
-    chat_model = make_model(model, max_len=200)
+    chat_model = make_model(model, max_tokens=200)
 
     if n_instructions is not None:
         instructions = instructions[:n_instructions]
@@ -77,7 +77,7 @@ def generate_base(
     n_instructions: int | None = None,
     max_len: int | None = 2000,
 ) -> pd.DataFrame:
-    model = make_model(model, max_len=200)
+    model = make_model(model, max_tokens=200)
 
     if n_instructions is not None:
         instructions = instructions[:n_instructions]

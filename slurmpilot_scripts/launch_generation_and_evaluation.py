@@ -7,9 +7,10 @@ slurm = SlurmPilot(clusters=[cluster])
 baseline = "VLLM/Qwen/Qwen2.5-7B"
 
 models = [
-    "MultiSynt/nemotron-cc-spanish-tower9b",
-    "MultiSynt/nemotron-cc-spanish-run1-tower72b",
-    "MultiSynt/nemotron-cc-translated-100B-opus-mt-spa",
+    "VLLM/MultiSynt/nemotron-cc-spanish-tower9b",
+    # "VLLM/MultiSynt/nemotron-cc-spanish-run1-tower72b",
+    "VLLM/MultiSynt/nemotron-cc-translated-100B-opus-mt-spa",
+    "VLLM/HPLT/hplt2c_spa_checkpoints",
 ]
 job_info = JobCreationInfo(
     cluster=cluster,

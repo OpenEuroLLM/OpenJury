@@ -80,13 +80,15 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
     return res
 
 
-def make_model(model: str, max_len: int | None = 200):
+def make_model(model: str, max_tokens: int | None = 200):
     model_provider = model.split("/")[0]
     model_kwargs = {}
-    if model_provider == "Together":
-        if max_len is not None:
+    if max_tokens is not None:
+        if model_provider == "Together":
             # TODO allow to specify kwargs in model string
-            model_kwargs["max_tokens"] = max_len
+            model_kwargs["max_tokens"] = max_tokens
+        if model_provider == "VLLM":
+            model_kwargs["max_model_len"] = max_tokens
 
     model_name = "/".join(model.split("/")[1:])
     print(f"Loading {model_provider}(model={model_name})")
