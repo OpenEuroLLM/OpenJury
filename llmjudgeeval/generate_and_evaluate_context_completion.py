@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from llmjudgeeval.utils import data_root
+from llmjudgeeval.utils import data_root, set_langchain_cache
 from llmjudgeeval.evaluate import annotate
 from llmjudgeeval.generate import generate_base
 from llmjudgeeval.utils import make_model, cache_function_dataframe
@@ -100,8 +100,8 @@ def main():
     args = CliArgs.parse_args()
 
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
-    # if not args.ignore_cache:
-    #     set_langchain_cache()
+    if not args.ignore_cache:
+        set_langchain_cache()
 
     instructions = load_contexts(args.dataset + ".csv")
 
@@ -113,7 +113,7 @@ def main():
         f"Generating completions for dataset {args.dataset} with model {args.generation_model_A} and "
         f"{args.generation_model_B} (or loading them directly if present)"
     )
-    # TODO check if local file present
+
     ignore_cache = False
     completions_A = cache_function_dataframe(
         lambda: generate_base(

@@ -48,11 +48,7 @@ python llmjudgeeval/evaluate.py \
 ```
 
 TODOs [priority/size]:
-* put contexts in HF dataset [high/small]
-* support m-arena-hard [high/large]
-  * instruction loader [DONE]
-  * generate instructions for two models 
-  * make comparison
+* mAH: support using all languages at once [high/medium]
 * support evaluation with input swap [medium/small]
 * handle errors [medium/small]
 * document options [medium/large]
@@ -74,3 +70,7 @@ Done:
 * test openai judge [medium/small]
 * test vLLM judge [medium/small]
 * CLI launcher [medium/large]
+* put contexts in HF dataset [high/small]
+* mAH: instruction loader [DONE]
+* mAH: generate instructions for two models [DONE] 
+* mAH: make comparison [DONE]

@@ -39,6 +39,9 @@ def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Ser
             ]
         print(f"Loading m-arena-hard with language specification set to {language}")
         df_instructions = load_m_arenahard(local_path=data_root, language=language)
+
+        # sort by question_id, then language so that we get multiple languages if we truncate
+        df_instructions.sort_values(["question_id", "lang"], inplace=True)
         df_instructions.rename(
             {
                 "question_id": "instruction_index",
