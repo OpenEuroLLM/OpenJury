@@ -9,9 +9,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from llmjudgeeval.utils import data_root
 from llmjudgeeval.evaluate import annotate
-from llmjudgeeval.generate import generate, generate_base
-from llmjudgeeval.utils import make_model, set_langchain_cache, cache_function_dataframe
+from llmjudgeeval.generate import generate_base
+from llmjudgeeval.utils import make_model, cache_function_dataframe
 
 
 @dataclass
@@ -81,7 +82,7 @@ class CliArgs:
 
 
 def load_contexts(dataset: str) -> pd.Series:
-    path = Path(__file__).parent.parent / "data" / dataset
+    path = data_root / "contexts" / dataset
     return pd.read_csv(path).loc[:, "instruction"]
 
 

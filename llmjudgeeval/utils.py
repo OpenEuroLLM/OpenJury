@@ -122,6 +122,14 @@ def download_all():
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)
 
+    snapshot_download(
+        repo_id="geoalgo/multilingual-contexts-to-be-completed",
+        repo_type="dataset",
+        allow_patterns="*",
+        local_dir=data_root / "contexts",
+        force_download=False,
+    )
+
 
 class Timeblock:
     """Timer context manager"""
@@ -177,3 +185,7 @@ def cache_function_dataframe(
             assert isinstance(df, pd.DataFrame)
             df.to_csv(cache_file, index=False)
             return pd.read_csv(cache_file)
+
+
+if __name__ == "__main__":
+    download_all()
