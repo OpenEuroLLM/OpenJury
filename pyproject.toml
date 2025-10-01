@@ -13,6 +13,7 @@ dependencies = [
     "langchain-community>=0.3.29",
     "langchain-openai>=0.3.32",
     "langchain-together>=0.3.1",
+    "matplotlib>=3.10.6",
     "pandas>=2.3.2",
     "rich>=14.1.0",
     "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",

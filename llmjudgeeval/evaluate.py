@@ -199,7 +199,7 @@ def annotate(
     user_prompt_template: str = None,
     max_len: int | None = 2000,
     use_tqdm: bool = False,
-    provide_explanation: bool = True,
+    provide_explanation: bool = False,
 ) -> list[JudgeAnnotation]:
     """
     Directly evaluate from list of instructions and completions

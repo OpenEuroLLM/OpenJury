@@ -47,7 +47,8 @@ python llmjudgeeval/evaluate.py \
 --n_instructions 10
 ```
 
-TODOs:
+TODOs [priority/size]:
+* put contexts in HF dataset [high/small]
 * support m-arena-hard [high/large]
   * instruction loader [DONE]
   * generate instructions for two models 

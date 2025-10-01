@@ -3,7 +3,8 @@ This script generates completions for a given dataset and model,
 and then evaluates them using a judge model.
 """
 import argparse
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 import pandas as pd
@@ -148,8 +149,8 @@ def main():
         max_tokens=512,
     )
     system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
-    model based on the quality of completion of a sentence. You will be a sentence to be completed and two \
-    completions from Assistant A and Assistant B and will have to decide which one was best. Make sure to not \
+    model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
+    completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
     over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
     the ordering or on the length of the answers."""
 
@@ -169,7 +170,10 @@ def main():
     output_path = Path("results") / f"{name}-annotations.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Saving annotations to {output_path}")
-    pd.DataFrame(annotations).to_csv(output_path, index=False)
+    df = pd.DataFrame(annotations)
+    df["generation_model_A"] = args.generation_model_A
+    df["generation_model_B"] = args.generation_model_B
+    df.to_csv(output_path, index=False)
 
     prefs = pd.Series([annotation.preference for annotation in annotations])
     num_wins = sum(prefs < 0.5)
@@ -184,12 +188,18 @@ def main():
         "num_wins": num_wins,
         "num_losses": num_losses,
         "num_ties": num_ties,
+        "preferences": prefs.tolist(),
     }
     print(
         f"{args.generation_model_A} vs {args.generation_model_B} judged by {args.judge_model}"
     )
     print(results)
-    print([annotation.preference for annotation in annotations])
+
+    with open(output_path.parent / "args.json", "w") as f:
+        json.dump(asdict(args), f, indent=2)
+
+    with open(output_path.parent / "results-summary.json", "w") as f:
+        json.dump(results, f, indent=2)
 
 
 if __name__ == "__main__":
