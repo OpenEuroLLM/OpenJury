@@ -143,10 +143,9 @@ def evaluate_completions(
 
     annotations = annotate(
         judge_chat_model=judge_chat_model,
-        user_prompts=instructions,
-        completions_A=completions_A,
-        completions_B=completions_B,
-        num_annotations=num_annotations,
+        user_prompts=instructions.tolist(),
+        completions_A=completions_A.loc[instructions.index].tolist(),
+        completions_B=completions_B.loc[instructions.index].tolist(),
         use_tqdm=use_tqdm,
         max_len=max_len,
         provide_explanation=provide_explanation,
