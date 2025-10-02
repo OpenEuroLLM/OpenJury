@@ -19,3 +19,6 @@ dependencies = [
     "rich>=14.1.0",
     "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
 ]
+
+[project.optional-dependencies]
+vllm = ["vllm==0.10.2"]

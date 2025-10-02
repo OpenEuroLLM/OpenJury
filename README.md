@@ -13,9 +13,9 @@ Together and OpenAI have been tested which should already cover a wide set of us
 ```bash
 git clone https://github.com/geoalgo/llm-judge-eval
 cd llm-judge-eval
-uv sync .
-uv add vllm==0.10.2  # if you need vllm
-export LLM_JUDGE_EVAL_DATA=~/PATH_TO_STORE_DATA  # default to ~/llm-judge-eval-data/
+uv sync 
+uv sync --extra vllm   # if you need vllm
+export LLM_JUDGE_EVAL_DATA=~/llm-judge-eval-data/  # where data is downloaded
 python -c "from llmjudgeeval.utils import download_all; download_all()"  # if you need to download all datasets at once
 ```
 
