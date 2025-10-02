@@ -7,6 +7,19 @@ The main use-cases of this packages are:
 For generation and LLM-judge any model available in [LangChain](https://python.langchain.com/docs/integrations/chat/]) should be usable in theory, so far LlamaCpp, vLLM, 
 Together and OpenAI have been tested which should already cover a wide set of use-cases.
 
+
+**Installation instructions.**
+
+```bash
+git clone https://github.com/geoalgo/llm-judge-eval
+cd llm-judge-eval
+uv sync .
+uv add vllm==0.10.2  # if you need vllm
+export LLM_JUDGE_EVAL_DATA=~/PATH_TO_STORE_DATA  # default to ~/llm-judge-eval-data/
+python -c "from llmjudgeeval.utils import download_all; download_all()"  # if you need to download all datasets at once
+```
+
+
 **Evaluate a model.** 
 
 To evaluate a model, run something like this:
@@ -31,6 +44,15 @@ Here are examples with different providers:
 * `LlamaCpp/jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf`
 * `VLLM/MultiSynt/nemotron-cc-german-9b`
 
+```bash
+python llmjudgeeval/generate_and_evaluate.py \
+--dataset alpaca-eval \
+--model_A VLLM/MultiSynt/nemotron-cc-german-9b \
+--model_B VLLM/MultiSynt/nemotron-cc-german-tower72b \
+--judge_model VLLM/Qwen/Qwen2.5-32B-Instruct-GPTQ-Int8 \
+--n_instructions 10 
+```
+
 You should make sure that you have the extra-dependencies of Langchain installed.
 
 **Dataset supported.**
@@ -54,7 +76,6 @@ The datasets will be downloaded under `$LLM_JUDGE_EVAL_DATA` if the environment 
 `~/llm-judge-eval-data/` otherwise. 
 
 TODOs:
-* installation instructions
 * support evaluation with input swap 
 * handle errors
 * CI [high/large]
@@ -81,3 +102,4 @@ Done:
 * mAH: support using all languages at once [high/medium]
 * unit-test
 * add details to example to generate and evaluate completions
+* installation instructions

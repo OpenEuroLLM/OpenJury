@@ -15,9 +15,9 @@ qwen_models = [
 ]
 
 for language in [
-    # "spanish",
-    # "german",
-    # "french",
+    "spanish",
+    "german",
+    "french",
     "swedish",
     "finnish",
 ]:
@@ -59,14 +59,14 @@ for language in [
     job_info = JobCreationInfo(
         cluster=cluster,
         partition="alldlc2_gpu-h200",
-        jobname=unify(f"oellmjudge/{language}-eval", method="date"),
+        jobname=unify(f"oellmjudge-v2/{language}-eval", method="date"),
         entrypoint="generate_and_evaluate.py",
-        python_binary="/work/dlclarge1/salinasd-llm-judge/llm-judge-eval/.venv/bin/python",
+        python_binary="/work/dlclarge1/salinasd-llm-judge/check/llm-judge-eval/.venv/bin/python",
         python_args=[
             {
                 "dataset": f"{language}-contexts",
-                "generation_model_A": baseline,
-                "generation_model_B": model,
+                "model_A": baseline,
+                "model_B": model,
                 "judge_model": "VLLM/Qwen/Qwen2.5-32B-Instruct-GPTQ-Int8",
                 "n_instructions": 100,
                 # "ignore_cache": None,
@@ -77,7 +77,10 @@ for language in [
         python_libraries=[str(Path(__file__).parent.parent / "data/")],
         n_cpus=1,
         max_runtime_minutes=30,
-        env={"HF_HUB_OFFLINE": "1"},
+        env={
+            "HF_HUB_OFFLINE": "1",
+            "LLM_JUDGE_EVAL_DATA": "/work/dlclarge1/salinasd-llm-judge/check/llm-judge-eval/here",
+        },
     )
 
     # Launch the job

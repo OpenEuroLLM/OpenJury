@@ -111,8 +111,9 @@ def main(args: CliArgs):
         )
 
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
-    if not args.ignore_cache:
-        set_langchain_cache()
+    # if not args.ignore_cache:
+    #     set_langchain_cache()
+    ignore_cache = True
 
     if is_base_model:
         instructions = load_contexts(args.dataset + ".csv")
@@ -130,7 +131,6 @@ def main(args: CliArgs):
         f"{args.model_B} (or loading them directly if present)"
     )
 
-    ignore_cache = False
     gen_fun = generate_base if is_base_model else generate_instructions
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
