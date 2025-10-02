@@ -133,6 +133,7 @@ def make_model(model: str, max_tokens: int | None = 200):
 
 
 def download_all():
+    print(f"Downloading all dataset in {data_root}")
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)

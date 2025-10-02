@@ -1,19 +1,8 @@
-"""
-TODOs:
-* function that generate predictions given dataset, model provider and model
-* main with CLI
-Done:
-"""
-import argparse
-from pathlib import Path
-
 import pandas as pd
 from langchain.prompts import ChatPromptTemplate
 
-from llmjudgeeval.instruction_dataset import load_instructions
 from llmjudgeeval.utils import (
     do_inference,
-    set_langchain_cache,
     make_model,
 )
 
@@ -25,18 +14,14 @@ def truncate(s: str, max_len: int | None = None):
         return s
 
 
-def generate(
+def generate_instructions(
     instructions: pd.Series,
     model: str,
-    n_instructions: int | None = None,
     max_len: int | None = 2000,
     use_tqdm: bool = True,
     system_prompt: str | None = None,
 ) -> pd.DataFrame:
     chat_model = make_model(model, max_tokens=200)
-
-    if n_instructions is not None:
-        instructions = instructions[:n_instructions]
 
     # TODO improve prompt to generate instructions
     if system_prompt is None:
@@ -71,42 +56,25 @@ def generate(
     return df_outputs
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="alpaca-eval")
-    parser.add_argument(
-        "--model", type=str, default="Together/meta-llama/Llama-3.2-3B-Instruct-Turbo"
-    )
-    parser.add_argument("--output_path", type=Path, default=None)
-    parser.add_argument("--n_instructions", type=int, default=10)
-    parser.add_argument(
-        "--ignore_cache",
-        action="store_true",
-        help="If specified, will ignore langchain cache and regenerate all requests even those which were previously"
-        " submitted",
-    )
-    parser.add_argument(
-        "--use_tqdm",
-        action="store_true",
-        help="Option to activate tqdm, does not always work with some backend like LlamaCpp",
-    )
-    args = parser.parse_args()
+def generate_base(
+    instructions: pd.Series,
+    model: str,
+    max_len: int | None = 2000,
+) -> pd.DataFrame:
+    model = make_model(model, max_tokens=200)
 
-    if not args.ignore_cache:
-        set_langchain_cache()
-    instructions = load_instructions(
-        dataset=args.dataset, n_instructions=args.n_instructions
+    inputs = [truncate(instruction, max_len=max_len) for instruction in instructions]
+
+    completions = model.batch(
+        inputs=inputs,
+        max_tokens=max_len,
     )
 
-    generate(
-        instructions=instructions,
-        model=args.model,
-        n_instructions=args.n_instructions,
-        use_tqdm=args.use_tqdm,
+    df_outputs = pd.DataFrame(
+        data={
+            "completion": completions,
+            "instruction_index": instructions.index.tolist(),
+        },
     )
 
-    # TODO save in output_path
-
-
-if __name__ == "__main__":
-    main()
+    return df_outputs

@@ -10,6 +10,8 @@ from pathlib import Path
 import pandas as pd
 
 from llmjudgeeval.evaluate import annotate
+from llmjudgeeval.generate import generate_instructions, generate_base
+from llmjudgeeval.instruction_dataset import load_instructions
 from llmjudgeeval.utils import data_root, set_langchain_cache
 from llmjudgeeval.utils import make_model, cache_function_dataframe
 
@@ -17,8 +19,8 @@ from llmjudgeeval.utils import make_model, cache_function_dataframe
 @dataclass
 class CliArgs:
     dataset: str
-    generation_model_A: str
-    generation_model_B: str
+    model_A: str
+    model_B: str
     judge_model: str
 
     n_instructions: int | None = None
@@ -32,15 +34,16 @@ class CliArgs:
         )
         parser.add_argument(
             "--dataset",
-            help="The dataset to use",
+            help="The dataset to use. For instance `alpaca-eval`, `arena-hard`, `m-arena-hard-EU` for instruction "
+            "tuning cases or `french-contexts`, `spanish-contexts` for base models.",
         )
         parser.add_argument(
-            "--generation_model_A",
+            "--model_A",
             required=True,
             help="Name of the LLM to use for a generation, must be a valid choice for `generation_provider`",
         )
         parser.add_argument(
-            "--generation_model_B",
+            "--model_B",
             required=True,
             help="Name of the LLM to use for a generation, must be a valid choice for `generation_provider`",
         )
@@ -71,8 +74,8 @@ class CliArgs:
 
         return cls(
             dataset=args.dataset,
-            generation_model_A=args.generation_model_A,
-            generation_model_B=args.generation_model_B,
+            model_A=args.model_A,
+            model_B=args.model_B,
             judge_model=args.judge_model,
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
@@ -83,40 +86,6 @@ class CliArgs:
 def load_contexts(dataset: str) -> pd.Series:
     path = data_root / "contexts" / dataset
     return pd.read_csv(path).loc[:, "instruction"]
-
-
-def generate_base(
-    instructions: pd.Series,
-    model: str,
-    n_instructions: int | None = None,
-    max_len: int | None = 2000,
-) -> pd.DataFrame:
-    model = make_model(model, max_tokens=200)
-
-    if n_instructions is not None:
-        instructions = instructions[:n_instructions]
-
-    def truncate(s: str, max_len: int | None = None):
-        if max_len is not None:
-            return s[:max_len]
-        else:
-            return s
-
-    inputs = [truncate(instruction, max_len=max_len) for instruction in instructions]
-
-    completions = model.batch(
-        inputs=inputs,
-        max_tokens=max_len,
-    )
-
-    df_outputs = pd.DataFrame(
-        data={
-            "completion": completions,
-            "instruction_index": instructions.index.tolist(),
-        },
-    )
-
-    return df_outputs
 
 
 def main(args: CliArgs):
@@ -131,49 +100,61 @@ def main(args: CliArgs):
     3) create annotations
     """
 
+    is_base_model = "context" in args.dataset
+    if is_base_model:
+        print(
+            f"Using dataset {args.dataset} and evaluating base models {args.model_A} and {args.model_B}."
+        )
+    else:
+        print(
+            f"Using dataset {args.dataset} and instruction-tuned models {args.model_A} and {args.model_B}."
+        )
+
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
     if not args.ignore_cache:
         set_langchain_cache()
 
-    instructions = load_contexts(args.dataset + ".csv")
+    if is_base_model:
+        instructions = load_contexts(args.dataset + ".csv")
+    else:
+        instructions = load_instructions(
+            dataset=args.dataset, n_instructions=args.n_instructions
+        )
 
     n_instructions = args.n_instructions if args.n_instructions else len(instructions)
     if args.n_instructions is not None:
         instructions = instructions[:n_instructions]
 
     print(
-        f"Generating completions for dataset {args.dataset} with model {args.generation_model_A} and "
-        f"{args.generation_model_B} (or loading them directly if present)"
+        f"Generating completions for dataset {args.dataset} with model {args.model_A} and "
+        f"{args.model_B} (or loading them directly if present)"
     )
 
     ignore_cache = False
+    gen_fun = generate_base if is_base_model else generate_instructions
     completions_A = cache_function_dataframe(
-        lambda: generate_base(
+        lambda: gen_fun(
             instructions=instructions,
-            model=args.generation_model_A,
-            n_instructions=n_instructions,
-            # system_prompt="Please complete the following text. Just output the completion and nothing else. Do not output more than 3 sentences.",
+            model=args.model_A,
         ),
         ignore_cache=ignore_cache,
-        cache_name=f"{args.dataset}_{args.generation_model_A}_{args.n_instructions}",
+        cache_name=f"{args.dataset}_{args.model_A}_{args.n_instructions}",
     ).set_index("instruction_index")
     completions_A = completions_A.loc[:, "completion"]
     completions_B = cache_function_dataframe(
-        lambda: generate_base(
+        lambda: gen_fun(
             instructions=instructions,
-            model=args.generation_model_B,
-            n_instructions=n_instructions,
-            # system_prompt="Please complete the following text. Do not output more than 3 sentences.",
+            model=args.model_B,
         ),
         ignore_cache=ignore_cache,
-        cache_name=f"{args.dataset}_{args.generation_model_B}_{args.n_instructions}",
+        cache_name=f"{args.dataset}_{args.model_B}_{args.n_instructions}",
     ).set_index("instruction_index")
     completions_B = completions_B.loc[:, "completion"]
-    print(f"\nFirst context: {instructions.values[0]}")
+    print(f"\nFirst instruction/context: {instructions.values[0]}")
 
-    print(f"\nFirst completion of {args.generation_model_A}")
+    print(f"\nFirst completion of {args.model_A}")
     print(completions_A.values[0])
-    print(f"\nFirst completion of {args.generation_model_B}")
+    print(f"\nFirst completion of {args.model_B}")
     print(completions_B.values[0])
     print(f"Evaluating completions with judge {args.judge_model}.")
 
@@ -181,12 +162,16 @@ def main(args: CliArgs):
         model=args.judge_model,
         max_tokens=512,
     )
-    system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
-    model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
-    completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
-    over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
-    the ordering or on the length of the answers."""
+    if is_base_model:
+        system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
+        model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
+        completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
+        over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
+        the ordering or on the length of the answers."""
+    else:
+        # the default system prompt of annotate is to compare instruction tuned models.
 
+        system_prompt = None
     annotations = annotate(
         judge_chat_model=judge_chat_model,
         user_prompts=instructions.head(n_instructions).tolist(),
@@ -197,15 +182,17 @@ def main(args: CliArgs):
         max_len=200,
     )
 
-    name = f"{args.dataset}-{args.generation_model_A}-{args.generation_model_B}-{args.judge_model}".replace(
+    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}".replace(
         "/", "_"
     )
+
+    # TODO store in data_root
     output_path = Path("results") / f"{name}-annotations.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Saving annotations to {output_path}")
     df = pd.DataFrame(annotations)
-    df["generation_model_A"] = args.generation_model_A
-    df["generation_model_B"] = args.generation_model_B
+    df["model_A"] = args.model_A
+    df["model_B"] = args.model_B
     df.to_csv(output_path, index=False)
 
     prefs = pd.Series([annotation.preference for annotation in annotations])
@@ -223,9 +210,7 @@ def main(args: CliArgs):
         "num_ties": num_ties,
         "preferences": prefs.tolist(),
     }
-    print(
-        f"{args.generation_model_A} vs {args.generation_model_B} judged by {args.judge_model}"
-    )
+    print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print(results)
 
     with open(output_path.parent / "args.json", "w") as f:

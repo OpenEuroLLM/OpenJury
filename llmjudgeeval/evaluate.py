@@ -1,4 +1,3 @@
-import argparse
 import json
 import re
 from dataclasses import dataclass
@@ -16,8 +15,6 @@ from llmjudgeeval.utils import (
     data_root,
     download_hf,
     do_inference,
-    set_langchain_cache,
-    make_model,
 )
 
 
@@ -288,97 +285,3 @@ def annotate(
             )
         )
     return annotations
-
-
-@dataclass
-class EvalArgs:
-    dataset: str
-    method_A: str
-    method_B: str
-    judge_model: str
-    n_instructions: int | None = None
-    provide_explanation: bool = False
-    ignore_cache: bool = False
-
-    @classmethod
-    def parse_args(cls):
-        parser = argparse.ArgumentParser(
-            prog="Evaluate LLM Judge on alpaca-eval, arena-hard, m-arena-hard",
-        )
-        parser.add_argument(
-            "--dataset",
-            help="The dataset to use",
-            default="arena-hard",
-            # choices=["alpaca-eval", "arena-hard", "m-arena-hard"],
-        )
-        parser.add_argument(
-            "--method_A",
-            required=True,
-            help="one method to evaluate, can be a method existing in `dataset` or a local path to the completion of a "
-            'local method. The path should be a dataframe ending with ".csv.zip" or ".parquet", have columns '
-            "`instruction_index` and `output` and should contains all the instruction of `dataset`.",
-        )
-        parser.add_argument(
-            "--method_B",
-            required=True,
-            help="another method to evaluate against `method_A`",
-        )
-
-        parser.add_argument(
-            "--judge_model",
-            required=True,
-            help="Name of the LLM to use, for instance `ChatOpenAI/gpt-5-nano`",
-        )
-
-        parser.add_argument(
-            "--n_instructions",
-            type=int,
-            required=False,
-        )
-
-        parser.add_argument(
-            "--provide_explanation",
-            action="store_true",
-            help="If specified, judge will provide explanation before making a judgement. Does not necessarily improve"
-            "the accuracy of the judge but enables some result interpretation.",
-        )
-        parser.add_argument(
-            "--ignore_cache",
-            action="store_true",
-            help="If specified, ignore cache of previous completions.",
-        )
-
-        args = parser.parse_args()
-
-        return cls(
-            dataset=args.dataset,
-            method_A=args.method_A,
-            method_B=args.method_B,
-            judge_model=args.judge_model,
-            n_instructions=args.n_instructions,
-            provide_explanation=args.provide_explanation,
-            ignore_cache=args.ignore_cache,
-        )
-
-
-def main():
-    args = EvalArgs.parse_args()
-
-    if not args.ignore_cache:
-        set_langchain_cache()
-
-    judge_chat_model = make_model(model=args.judge_model)
-
-    print(judge_chat_model)
-    evaluate_completions(
-        dataset=args.dataset,
-        num_annotations=args.n_instructions,
-        method_A=args.method_A,
-        method_B=args.method_B,
-        judge_chat_model=judge_chat_model,
-        provide_explanation=args.provide_explanation,
-    )
-
-
-if __name__ == "__main__":
-    main()
