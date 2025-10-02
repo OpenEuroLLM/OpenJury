@@ -9,9 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from llmjudgeeval.utils import data_root, set_langchain_cache
 from llmjudgeeval.evaluate import annotate
-from llmjudgeeval.generate import generate_base
+from llmjudgeeval.utils import data_root, set_langchain_cache
 from llmjudgeeval.utils import make_model, cache_function_dataframe
 
 
@@ -86,7 +85,41 @@ def load_contexts(dataset: str) -> pd.Series:
     return pd.read_csv(path).loc[:, "instruction"]
 
 
-def main():
+def generate_base(
+    instructions: pd.Series,
+    model: str,
+    n_instructions: int | None = None,
+    max_len: int | None = 2000,
+) -> pd.DataFrame:
+    model = make_model(model, max_tokens=200)
+
+    if n_instructions is not None:
+        instructions = instructions[:n_instructions]
+
+    def truncate(s: str, max_len: int | None = None):
+        if max_len is not None:
+            return s[:max_len]
+        else:
+            return s
+
+    inputs = [truncate(instruction, max_len=max_len) for instruction in instructions]
+
+    completions = model.batch(
+        inputs=inputs,
+        max_tokens=max_len,
+    )
+
+    df_outputs = pd.DataFrame(
+        data={
+            "completion": completions,
+            "instruction_index": instructions.index.tolist(),
+        },
+    )
+
+    return df_outputs
+
+
+def main(args: CliArgs):
     """
     1) take as input:
      * dataset, make sure instruct-completion works
@@ -97,7 +130,6 @@ def main():
     2) create completions
     3) create annotations
     """
-    args = CliArgs.parse_args()
 
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
     if not args.ignore_cache:
@@ -204,4 +236,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = CliArgs.parse_args()
+
+    main(args)

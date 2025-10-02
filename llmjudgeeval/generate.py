@@ -71,34 +71,6 @@ def generate(
     return df_outputs
 
 
-def generate_base(
-    instructions: pd.Series,
-    model: str,
-    n_instructions: int | None = None,
-    max_len: int | None = 2000,
-) -> pd.DataFrame:
-    model = make_model(model, max_tokens=200)
-
-    if n_instructions is not None:
-        instructions = instructions[:n_instructions]
-
-    inputs = [truncate(instruction, max_len=max_len) for instruction in instructions]
-
-    completions = model.batch(
-        inputs=inputs,
-        max_tokens=max_len,
-    )
-
-    df_outputs = pd.DataFrame(
-        data={
-            "completion": completions,
-            "instruction_index": instructions.index.tolist(),
-        },
-    )
-
-    return df_outputs
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="alpaca-eval")

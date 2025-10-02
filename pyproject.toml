@@ -15,6 +15,7 @@ dependencies = [
     "langchain-together>=0.3.1",
     "matplotlib>=3.10.6",
     "pandas>=2.3.2",
+    "pytest>=8.4.2",
     "rich>=14.1.0",
     "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
 ]

@@ -80,7 +80,22 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
     return res
 
 
+class DummyModel:
+    def batch(self, inputs, **invoke_kwargs) -> list[str]:
+        return ["Dummy output"] * len(inputs)
+
+    def invoke(self, input, **invoke_kwargs) -> str:
+        return "Dummy"
+
+    def ainvoke(self, input, **invoke_kwargs):
+        # TODO
+        pass
+
+
 def make_model(model: str, max_tokens: int | None = 200):
+    if model == "Dummy":
+        return DummyModel()
+
     model_provider = model.split("/")[0]
     model_kwargs = {}
     if max_tokens is not None:
