@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
+packages = ["llmjudgeeval"]
 dependencies = [
     "black>=25.1.0",
     "datasets>=4.0.0",
