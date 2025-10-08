@@ -87,9 +87,8 @@ class DummyModel:
     def invoke(self, input, **invoke_kwargs) -> str:
         return "Dummy"
 
-    def ainvoke(self, input, **invoke_kwargs):
-        # TODO
-        pass
+    async def ainvoke(self, input, **invoke_kwargs):
+        return "Dummy"
 
 
 def make_model(model: str, max_tokens: int | None = 200):

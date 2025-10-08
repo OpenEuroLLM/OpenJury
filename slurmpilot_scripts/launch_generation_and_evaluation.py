@@ -15,11 +15,12 @@ qwen_models = [
 ]
 
 for language in [
-    "spanish",
-    "german",
-    "french",
-    "swedish",
-    "finnish",
+    "italian",
+    # "spanish",
+    # "german",
+    # "french",
+    # "swedish",
+    # "finnish",
 ]:
     if language == "spanish":
         baseline = "VLLM/HPLT/hplt2c_spa_checkpoints"
@@ -49,7 +50,12 @@ for language in [
             "VLLM/MultiSynt/nemotron-cc-finnish-tower9b",
             "VLLM/MultiSynt/nemotron-cc-finnish-tower72b",
         ]
-
+    elif language == "italian":
+        baseline = "VLLM/HPLT/hplt2c_ita_checkpoints"
+        multisynt_models = [
+            "VLLM/MultiSynt/nemotron-cc-italian-opus",
+            "VLLM/MultiSynt/nemotron-cc-italian-tower72b",
+        ]
     elif language == "french":
         baseline = "VLLM/HPLT/hplt2c_fra_checkpoints"
         multisynt_models = []
@@ -79,7 +85,7 @@ for language in [
         max_runtime_minutes=30,
         env={
             "HF_HUB_OFFLINE": "1",
-            "LLM_JUDGE_EVAL_DATA": "/work/dlclarge1/salinasd-llm-judge/check/llm-judge-eval/here",
+            # "LLM_JUDGE_EVAL_DATA": "/work/dlclarge1/salinasd-llm-judge/check/llm-judge-eval/here",
         },
     )
 

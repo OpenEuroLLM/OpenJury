@@ -47,8 +47,8 @@ Here are examples with different providers:
 ```bash
 python llmjudgeeval/generate_and_evaluate.py \
 --dataset alpaca-eval \
---model_A VLLM/MultiSynt/nemotron-cc-german-9b \
---model_B VLLM/MultiSynt/nemotron-cc-german-tower72b \
+--model_A VLLM/Qwen/Qwen2.5-0.5B-Instruct \
+--model_B VLLM/Qwen/Qwen2.5-1.5B-Instruct \
 --judge_model VLLM/Qwen/Qwen2.5-32B-Instruct-GPTQ-Int8 \
 --n_instructions 10 
 ```
