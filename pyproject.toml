@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "llm-judge-eval"
 version = "0.1.0"
@@ -21,6 +25,10 @@ dependencies = [
     "rich>=14.1.0",
     "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
 ]
+
+[tool.setuptools.packages.find]
+include = ["llmjudgeeval*"]
+exclude = ["slurmpilot_scripts*"]
 
 [project.optional-dependencies]
 vllm = ["vllm==0.10.2"]
