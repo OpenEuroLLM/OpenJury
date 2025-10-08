@@ -1,8 +1,8 @@
 # LLM-Judge evaluation
 
 The main use-cases of this packages are:
-* evaluating one model easily against another on Alpaca-Eval, Arena-Hard, m-Arena-Hard or other benchmarks
-* easily swap judge model among self-hosted options with vLLM or remote options with Toegether or OpenAI
+* evaluating one model easily against another on `Alpaca-Eval`, `Arena-Hard`, `m-Arena-Hard` or other benchmarks
+* easily swap judge model among self-hosted options with `vLLM` or remote options with `Together` or `OpenAI`
 
 For generation and LLM-judge any model available in [LangChain](https://python.langchain.com/docs/integrations/chat/]) should be usable in theory, so far LlamaCpp, vLLM, 
 Together and OpenAI have been tested which should already cover a wide set of use-cases.
