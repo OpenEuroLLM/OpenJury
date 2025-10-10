@@ -1,4 +1,4 @@
-# LLM-Judge evaluation
+# OpenJury: LLM Evaluation with Swappable Judges
 
 The main use-cases of this packages are:
 * evaluating one model easily against another on `Alpaca-Eval`, `Arena-Hard`, `m-Arena-Hard` or other benchmarks
