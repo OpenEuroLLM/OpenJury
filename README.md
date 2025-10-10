@@ -5,9 +5,9 @@ Whether you're comparing proprietary models or testing your own fine-tuned creat
 
 ## ✨ Key Features
 
-🎯 **Flexible Benchmarking** – Evaluate models on industry-standard datasets like `Alpaca-Eval`, `Arena-Hard`, and `m-Arena-Hard`
+🎯 **Flexible Benchmarking** – Evaluate models on `Alpaca-Eval`, `Arena-Hard`, `m-Arena-Hard` and others
 
-🔄 **Swappable Judges** – Switch between self-hosted judges (`vLLM`) or remote options (`OpenAI`, `Together AI`, `OpenRouter`)
+🔄 **Swappable Judges** – Switch between self-hosted (`vLLM`) or remote judges (`OpenAI`, `Together AI`, `OpenRouter`)
 
 🌍 **Multilingual Support** – Test models across multiple languages with m-Arena-Hard
 
@@ -71,13 +71,13 @@ python openjury/generate_and_evaluate.py \
 
 ## 📊 Supported Datasets
 
-| Dataset | Description |
-|---------|-------------|
-| `alpaca-eval` | General instruction-following benchmark |
-| `arena-hard` | Challenging evaluation suite |
-| `m-arena-hard` | Multilingual Arena-Hard variant |
-| `m-arena-hard-{lang}` | Language-specific variants (e.g., `ar`, `cs`, `de`) |
-| `m-arena-hard-EU` | All EU languages combined |
+| Dataset | Description                                                                                    |
+|---------|------------------------------------------------------------------------------------------------|
+| `alpaca-eval` | General instruction-following benchmark                                                        |
+| `arena-hard` | More challenging evaluation suite                                                              |
+| `m-arena-hard` | Translated version of Arena-Hard in 23 languages                                               |
+| `m-arena-hard-{lang}` | Language-specific variants (e.g., `ar`, `cs`, `de`)                                            |
+| `m-arena-hard-EU` | All EU languages combined                                                                      |
 | `{lang}-contexts` | Fluency evaluation for pretrained models (`finnish`, `french`, `german`, `spanish`, `swedish`) |
 
 ### Offline Setup (Slurm/Air-Gapped Environments)
