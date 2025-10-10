@@ -79,7 +79,7 @@ for language in [
             }
             for model in multisynt_models + qwen_models
         ],
-        src_dir=str(Path(__file__).parent.parent / "llmjudgeeval/"),
+        src_dir=str(Path(__file__).parent.parent / "openjury/"),
         python_libraries=[str(Path(__file__).parent.parent / "data/")],
         n_cpus=1,
         max_runtime_minutes=30,

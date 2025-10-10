@@ -1,5 +1,5 @@
 import pytest
-from llmjudgeeval.generate_and_evaluate import (
+from openjury.generate_and_evaluate import (
     main as main_generate_and_eval,
     CliArgs,
 )

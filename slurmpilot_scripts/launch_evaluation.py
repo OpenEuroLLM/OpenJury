@@ -19,7 +19,7 @@ job_info = JobCreationInfo(
         "n_instructions": 10,
         # "ignore_cache": None,
     },
-    src_dir=str(Path(__file__).parent.parent / "llmjudgeeval/"),
+    src_dir=str(Path(__file__).parent.parent / "openjury/"),
     n_cpus=1,
     max_runtime_minutes=60,
     env={"HF_HUB_OFFLINE": "1"},

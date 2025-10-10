@@ -9,8 +9,8 @@ import pandas as pd
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
-from llmjudgeeval.instruction_dataset import load_instructions
-from llmjudgeeval.utils import (
+from openjury.instruction_dataset import load_instructions
+from openjury.utils import (
     read_df,
     data_root,
     download_hf,

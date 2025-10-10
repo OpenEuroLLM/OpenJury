@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from llmjudgeeval.evaluate import annotate
-from llmjudgeeval.generate import generate_instructions, generate_base
-from llmjudgeeval.instruction_dataset import load_instructions
-from llmjudgeeval.utils import data_root, set_langchain_cache
-from llmjudgeeval.utils import make_model, cache_function_dataframe
+from openjury.evaluate import annotate
+from openjury.generate import generate_instructions, generate_base
+from openjury.instruction_dataset import load_instructions
+from openjury.utils import data_root
+from openjury.utils import make_model, cache_function_dataframe
 
 
 @dataclass

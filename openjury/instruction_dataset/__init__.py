@@ -1,6 +1,6 @@
 import pandas as pd
-from llmjudgeeval.instruction_dataset.m_arenahard import load_m_arenahard
-from llmjudgeeval.utils import data_root, download_hf, read_df
+from openjury.instruction_dataset.m_arenahard import load_m_arenahard
+from openjury.utils import data_root, download_hf, read_df
 
 
 def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Series:

@@ -1,7 +1,7 @@
 import pandas as pd
 from langchain.prompts import ChatPromptTemplate
 
-from llmjudgeeval.utils import (
+from openjury.utils import (
     do_inference,
     make_model,
 )

@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["llmjudgeeval*"]
+include = ["openjury*"]
 exclude = ["slurmpilot_scripts*"]
 
 [project.optional-dependencies]

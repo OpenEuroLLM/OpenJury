@@ -13,7 +13,7 @@ from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
 data_root = Path(
-    os.environ.get("LLM_JUDGE_EVAL_DATA", Path("~/llm-judge-eval-data/").expanduser())
+    os.environ.get("OPENJURY_DATA", Path("~/openjury-eval-data/").expanduser())
 ).expanduser()
 
 

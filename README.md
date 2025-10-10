@@ -11,20 +11,18 @@ Together and OpenAI have been tested which should already cover a wide set of us
 **Installation instructions.**
 
 ```bash
-git clone https://github.com/geoalgo/llm-judge-eval
-cd llm-judge-eval
+git clone https://github.com/OpenEuroLLM/OpenJury
+cd OpenJury
 uv sync 
 uv sync --extra vllm   # if you need vllm
-export LLM_JUDGE_EVAL_DATA=~/llm-judge-eval-data/  # where data is downloaded
-python -c "from llmjudgeeval.utils import download_all; download_all()"  # if you need to download all datasets at once
+export OPENJURY_EVAL_DATA=~/openjury-eval-data/  # where data is downloaded
+python -c "from openjury.utils import download_all; download_all()"  # if you need to download all datasets at once
 ```
 
 
-**Evaluate a model.** 
-
-To evaluate a model, run something like this:
+**Evaluate a model.** To evaluate a model, you can run the following:
 ```bash
-python llmjudgeeval/generate_and_evaluate.py \
+python openjury/generate_and_evaluate.py \
 --dataset alpaca-eval \
 --model_A Together/meta-llama/Llama-3.3-70B-Instruct-Turbo \
 --model_B gpt4_1106_preview \
@@ -45,7 +43,7 @@ Here are examples with different providers:
 * `VLLM/MultiSynt/nemotron-cc-german-9b`
 
 ```bash
-python llmjudgeeval/generate_and_evaluate.py \
+python openjury/generate_and_evaluate.py \
 --dataset alpaca-eval \
 --model_A VLLM/Qwen/Qwen2.5-0.5B-Instruct \
 --model_B VLLM/Qwen/Qwen2.5-1.5B-Instruct \
@@ -55,51 +53,22 @@ python llmjudgeeval/generate_and_evaluate.py \
 
 You should make sure that you have the extra-dependencies of Langchain installed.
 
-**Dataset supported.**
-
-The following datasets are supported:
+**Dataset supported.** The following datasets are supported:
 * "alpaca-eval"
 * "arena-hard"
 * "m-arena-hard"
 * "m-arena-hard-{lang}" where lang is one of the language supported by m-Arena-Hard (e.g. "ar", "cs", "de") or "EU" to 
 run on all EU languages
-* {lang}-contexts where lang is one of "finnish", "french", "german", "spanish", "swedish"
+* {lang}-contexts where lang is one of "finnish", "french", "german", "spanish", "swedish". A setup to evaluated the 
+fluency of pretrained models. This datasets consists in sentences that needs to be completed and the completion are evaluated by an LLM-judge.
 
 If you are running in a Slurm setup without internet access on compute nodes, you may want to pre-download all datasets
 locally by running:
 
 ```
-python -c "from llmjudgeeval.utils import download_all; download_all()"
+python -c "from openjury.utils import download_all; download_all()"
 ```
 
-The datasets will be downloaded under `$LLM_JUDGE_EVAL_DATA` if the environment variable is specified and 
-`~/llm-judge-eval-data/` otherwise. 
+The datasets will be downloaded under `$OPENJURY_EVAL_DATA` if the environment variable is specified and 
+`~/openjury-eval-data/` otherwise. 
 
-TODOs:
-* support evaluation with input swap 
-* handle errors
-* CI [high/large]
-* implement CI judge option
-* implement domain filter in CI (maybe pass a regexp by column?)
-* report cost? 
-
-Done:
-* support alpaca-eval
-* support arena-hard
-* test together judge
-* local env variable to set paths
-* tqdm callback with batch
-* support loading local completions
-* support dumping outputs [medium/small]
-* test LlamaCpp [medium/small]
-* test openai judge [medium/small]
-* test vLLM judge [medium/small]
-* CLI launcher [medium/large]
-* put contexts in HF dataset [high/small]
-* mAH: instruction loader [DONE]
-* mAH: generate instructions for two models [DONE] 
-* mAH: make comparison [DONE]
-* mAH: support using all languages at once [high/medium]
-* unit-test
-* add details to example to generate and evaluate completions
-* installation instructions

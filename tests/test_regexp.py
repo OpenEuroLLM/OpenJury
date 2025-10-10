@@ -1,4 +1,4 @@
-from llmjudgeeval.evaluate import PairScore
+from openjury.evaluate import PairScore
 
 
 def test_pair_score():
