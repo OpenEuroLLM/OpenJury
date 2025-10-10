@@ -201,6 +201,7 @@ def main(args: CliArgs):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Saving annotations to {output_path}")
     df = pd.DataFrame(annotations)
+    df["instruction_index"] = instructions.head(n_instructions).index.tolist()
     df["model_A"] = args.model_A
     df["model_B"] = args.model_B
     df.to_csv(output_path, index=False)
