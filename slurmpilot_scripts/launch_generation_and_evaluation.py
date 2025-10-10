@@ -15,8 +15,8 @@ qwen_models = [
 ]
 
 for language in [
-    "italian",
-    # "spanish",
+    # "italian",
+    "spanish",
     # "german",
     # "french",
     # "swedish",

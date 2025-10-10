@@ -31,10 +31,10 @@ class PairScore:
     def parse_model_raw(self, judge_completion: str) -> float | None:
         # lower case to avoid confusion, e.g. when "a" is used instead of "A"
         score_a = self.get_regexp_match(
-            judge_completion.lower(), r'score[ _]*a[": *\n]*(-?\d+)'
+            judge_completion.lower(), r'score.*?a[": *\n]*(-?\d+)'
         )
         score_b = self.get_regexp_match(
-            judge_completion.lower(), r'score[ _]*b[": *\n]*(-?\d+)'
+            judge_completion.lower(), r'score.*?b[": *\n]*(-?\d+)'
         )
         if score_a is None or score_b is None:
             return None

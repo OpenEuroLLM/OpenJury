@@ -7,7 +7,7 @@ from typing import Callable
 from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
-from langchain_community.llms import LlamaCpp, VLLM
+from langchain_community.llms import LlamaCpp
 from langchain_openai import ChatOpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
@@ -98,37 +98,54 @@ def make_model(model: str, max_tokens: int | None = 200):
     model_provider = model.split("/")[0]
     model_kwargs = {}
     if max_tokens is not None:
-        if model_provider == "Together":
-            # TODO allow to specify kwargs in model string
-            model_kwargs["max_tokens"] = max_tokens
         if model_provider == "VLLM":
             model_kwargs["max_model_len"] = max_tokens
+        else:
+            # TODO allow to specify kwargs in model string
+            model_kwargs["max_tokens"] = max_tokens
 
     model_name = "/".join(model.split("/")[1:])
     print(f"Loading {model_provider}(model={model_name})")
-    model_classes = [
-        LlamaCpp,
-        ChatOpenAI,
-        VLLM,
-    ]
-    model_kwargs["model"] = model_name
-    try:
-        from langchain_together.llms import Together
 
-        model_classes.append(Together)
-    except ImportError:
-        pass
-    try:
-        from langchain_openai.llms import OpenAI
+    if model_provider == "OpenRouter":
+        # Special case we need to override API url and key
+        return ChatOpenAI(
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+            model=model_name,
+            **model_kwargs,
+        )
+    else:
+        model_classes = [
+            LlamaCpp,
+            ChatOpenAI,
+        ]
+        model_kwargs["model"] = model_name
 
-        model_classes.append(OpenAI)
-    except ImportError:
-        pass
-    model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
-    assert (
-        model_provider in model_cls_dict
-    ), f"{model_provider} not available, choose among {list(model_cls_dict.keys())}"
-    return model_cls_dict[model_provider](**model_kwargs)
+        try:
+            from langchain_community.llms import VLLM
+
+            model_classes.append(VLLM)
+        except ImportError as e:
+            print(str(e))
+
+        try:
+            from langchain_together.llms import Together
+
+            model_classes.append(Together)
+        except ImportError as e:
+            print(str(e))
+        try:
+            from langchain_openai.llms import OpenAI
+
+            model_classes.append(OpenAI)
+        except ImportError:
+            print(str(e))
+        model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
+        assert (
+            model_provider in model_cls_dict
+        ), f"{model_provider} not available, choose among {list(model_cls_dict.keys())}"
+        return model_cls_dict[model_provider](**model_kwargs)
 
 
 def download_all():

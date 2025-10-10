@@ -60,6 +60,7 @@ def generate_base(
     instructions: pd.Series,
     model: str,
     max_len: int | None = 2000,
+    use_tqdm: bool = False,
 ) -> pd.DataFrame:
     model = make_model(model, max_tokens=200)
 

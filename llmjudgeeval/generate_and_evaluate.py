@@ -26,6 +26,7 @@ class CliArgs:
     n_instructions: int | None = None
     provide_explanation: bool = False
     ignore_cache: bool = False
+    use_tqdm: bool = False
 
     @classmethod
     def parse_args(cls):
@@ -69,6 +70,11 @@ class CliArgs:
             action="store_true",
             help="If specified, ignore cache of previous completions.",
         )
+        parser.add_argument(
+            "--use_tqdm",
+            action="store_true",
+            help="If specified, use tqdm, does not work with all model providers.",
+        )
 
         args = parser.parse_args()
 
@@ -80,6 +86,7 @@ class CliArgs:
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
             ignore_cache=args.ignore_cache,
+            use_tqdm=args.use_tqdm,
         )
 
 
@@ -111,9 +118,9 @@ def main(args: CliArgs):
         )
 
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
-    # if not args.ignore_cache:
-    #     set_langchain_cache()
-    ignore_cache = True
+    # # if not args.ignore_cache:
+    # #     set_langchain_cache()
+    ignore_cache = args.ignore_cache
 
     if is_base_model:
         instructions = load_contexts(args.dataset + ".csv")
@@ -136,6 +143,7 @@ def main(args: CliArgs):
         lambda: gen_fun(
             instructions=instructions,
             model=args.model_A,
+            use_tqdm=args.use_tqdm,
         ),
         ignore_cache=ignore_cache,
         cache_name=f"{args.dataset}_{args.model_A}_{args.n_instructions}",
@@ -145,6 +153,7 @@ def main(args: CliArgs):
         lambda: gen_fun(
             instructions=instructions,
             model=args.model_B,
+            use_tqdm=args.use_tqdm,
         ),
         ignore_cache=ignore_cache,
         cache_name=f"{args.dataset}_{args.model_B}_{args.n_instructions}",
@@ -180,6 +189,7 @@ def main(args: CliArgs):
         provide_explanation=args.provide_explanation,
         system_prompt=system_prompt,
         max_len=200,
+        use_tqdm=args.use_tqdm,
     )
 
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}".replace(
@@ -213,14 +223,16 @@ def main(args: CliArgs):
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print(results)
 
-    with open(output_path.parent / "args.json", "w") as f:
+    with open(output_path.parent / f"args-{name}.json", "w") as f:
         json.dump(asdict(args), f, indent=2)
 
-    with open(output_path.parent / "results-summary.json", "w") as f:
+    with open(output_path.parent / f"results-summary-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
 
 
 if __name__ == "__main__":
     args = CliArgs.parse_args()
+
+    print(f"Running with CLI args: {args.__dict__}")
 
     main(args)
