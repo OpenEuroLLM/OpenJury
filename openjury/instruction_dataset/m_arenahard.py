@@ -45,7 +45,9 @@ def load_m_arenahard(local_path, language: str | None = None):
     df_res = pd.concat(df_union, ignore_index=True)
 
     # update index to still be unique by appendix language as a suffix
-    df_res["question_id"] = df_res.apply(lambda row: f'{row["question_id"]}-{row["lang"]}', axis=1)
+    df_res["question_id"] = df_res.apply(
+        lambda row: f'{row["question_id"]}-{row["lang"]}', axis=1
+    )
 
     return df_res
 
