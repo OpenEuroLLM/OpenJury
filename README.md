@@ -13,6 +13,17 @@ Whether you're comparing proprietary models or testing your own fine-tuned creat
 
 🛠️ **Provider Agnostic** – Works with any model available in [LangChain](https://python.langchain.com/docs/integrations/chat/)
 
+Compared to other libraries, here is a breakdown of features:
+
+| Framework | MT-Bench | AlpacaEval | Arena-Hard | M-Arena-Hard | Tuned Judge configuration | Support vLLM Judges |
+|-----------|----------|------------|------------|--------------|---------------------------|---------------------|
+| **FastChat** | ✅  | ❌  | ❌  | ❌  | ❌    | ❌                        |
+| **AlpacaEval** | ❌  | ✅  | ❌  | ❌  | ❌   | ❌                                             |
+| **Arena-Hard-Auto** | ❌  | ❌  | ✅  | ❌  | ❌    | ❌                                            |
+| **Lighteval** | ✅  | ❌  | ❌  | ❌  | ❌         | ❌                                       |
+| **Evalchemy** | ✅  | ✅  | ❌  | ❌  | ❌     | ❌                                           |
+| **OpenJury** | 🔜  | ✅  | ✅  | ✅  | ✅     | ✅                                          |
+
 ## 🚀 Quick Start
 
 ### Installation

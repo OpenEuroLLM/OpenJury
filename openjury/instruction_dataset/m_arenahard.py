@@ -30,7 +30,7 @@ def load_m_arenahard(local_path, language: str | None = None):
         "ro",
         "uk",
     ]
-    for path in Path(m_arena_root).rglob("*.parquet"):
+    for path in sorted(Path(m_arena_root).rglob("*.parquet")):
         lg = path.parent.name
         if language == "EU" and lg in eu_languages:
             df = pd.read_parquet(path)
@@ -42,7 +42,12 @@ def load_m_arenahard(local_path, language: str | None = None):
             df_union.append(df)
 
     assert len(df_union) > 0, f"Invalid language passed {language}"
-    return pd.concat(df_union, ignore_index=True)
+    df_res = pd.concat(df_union, ignore_index=True)
+
+    # update index to still be unique by appendix language as a suffix
+    df_res["question_id"] = df_res.apply(lambda row: f'{row["question_id"]}-{row["lang"]}', axis=1)
+
+    return df_res
 
 
 if __name__ == "__main__":
