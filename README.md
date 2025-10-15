@@ -15,14 +15,17 @@ Whether you're comparing proprietary models or testing your own fine-tuned creat
 
 Compared to other libraries, here is a breakdown of features:
 
-| Framework | MT-Bench | AlpacaEval | Arena-Hard | M-Arena-Hard | Tuned Judge configuration | Support vLLM Judges |
+| Framework | MT-Bench | AlpacaEval | Arena-Hard | M-Arena-Hard | Tuned judge configuration | Support vLLM Judges |
 |-----------|----------|------------|------------|--------------|---------------------------|---------------------|
-| **FastChat** | ✅  | ❌  | ❌  | ❌  | ❌    | ❌                        |
-| **AlpacaEval** | ❌  | ✅  | ❌  | ❌  | ❌   | ❌                                             |
-| **Arena-Hard-Auto** | ❌  | ❌  | ✅  | ❌  | ❌    | ❌                                            |
-| **Lighteval** | ✅  | ❌  | ❌  | ❌  | ❌         | ❌                                       |
-| **Evalchemy** | ✅  | ✅  | ❌  | ❌  | ❌     | ❌                                           |
-| **OpenJury** | 🔜  | ✅  | ✅  | ✅  | ✅     | ✅                                          |
+| **FastChat** | ✅  | ❌  | ❌  | ❌  | ❌                         | ❌                        |
+| **AlpacaEval** | ❌  | ✅  | ❌  | ❌  | ❌                         | ❌                                             |
+| **Arena-Hard-Auto** | ❌  | ❌  | ✅  | ❌  | ❌                         | ❌                                            |
+| **Lighteval** | ✅  | ❌  | ❌  | ❌  | ❌                         | ❌                                       |
+| **Evalchemy** | ✅  | ✅  | ❌  | ❌  | ❌                         | ❌                                           |
+| **OpenJury** | 🔜  | ✅  | ✅  | ✅  | ✅                         | ✅                                          |
+
+The table has been done on Oct 2025, in case some libraries implemented missing features, please open an issue 
+or send a PR, we will be happy to update the information.
 
 ## 🚀 Quick Start
 

@@ -4,7 +4,9 @@ and then evaluates them using a judge model.
 """
 import argparse
 import json
+import os
 from dataclasses import dataclass, asdict
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -196,15 +198,17 @@ def main(args: CliArgs):
         "/", "_"
     )
 
-    # TODO store in data_root
-    output_path = Path("results") / f"{name}-annotations.csv"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Saving annotations to {output_path}")
+    date = datetime.now().isoformat()
+
+    res_folder = data_root / "results" / date
+    res_folder.mkdir(parents=True, exist_ok=True)
+
+    print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
     df["model_A"] = args.model_A
     df["model_B"] = args.model_B
-    df.to_csv(output_path, index=False)
+    df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
     prefs = pd.Series([annotation.preference for annotation in annotations])
     num_wins = sum(prefs < 0.5)
@@ -214,20 +218,26 @@ def main(args: CliArgs):
     winrate = float(num_wins / num_battles)
 
     results = {
+        "dataset": args.dataset,
+        "model_A": args.model_A,
+        "model_B": args.model_B,
+        "judge_model": args.judge_model,
         "num_battles": num_battles,
         "winrate": winrate,
         "num_wins": num_wins,
         "num_losses": num_losses,
         "num_ties": num_ties,
         "preferences": prefs.tolist(),
+        "date": date,
+        "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print(results)
 
-    with open(output_path.parent / f"args-{name}.json", "w") as f:
+    with open(res_folder / f"args-{name}.json", "w") as f:
         json.dump(asdict(args), f, indent=2)
 
-    with open(output_path.parent / f"results-summary-{name}.json", "w") as f:
+    with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
 
 

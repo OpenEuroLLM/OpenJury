@@ -1,5 +1,6 @@
 TODOs:
 * support evaluation with input swap 
+* rename {lang}-contexts to fluency-{lang}
 * document on the fly evaluations with custom prompt
 * handle errors
 * CI [high/large]
@@ -27,3 +28,4 @@ Done:
 * unit-test
 * add details to example to generate and evaluate completions
 * installation instructions
+* generate proper json of results
