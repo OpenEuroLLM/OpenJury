@@ -2,6 +2,7 @@
 This script generates completions for a given dataset and model,
 and then evaluates them using a judge model.
 """
+
 import argparse
 import json
 import os
@@ -9,6 +10,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from openjury.evaluate import annotate
@@ -95,6 +97,25 @@ class CliArgs:
 def load_contexts(dataset: str) -> pd.Series:
     path = data_root / "contexts" / dataset
     return pd.read_csv(path).loc[:, "instruction"]
+
+
+def print_results(results):
+    """Print battle results in a nice formatted way"""
+
+    print("\n" + "=" * 60)
+    print("🏆 MODEL BATTLE RESULTS 🏆".center(60))
+    print(f"📊 Dataset: {results['dataset']}")
+    print(
+        f"🤖 Competitors: Model A: {results['model_A']} vs Model B: {results['model_B']}"
+    )
+    print(f"⚖️ Judge: {results['judge_model']}")
+    print(f"📈 Results Summary:")
+    print(f"   Total Battles: {results['num_battles']}")
+    print(f"   Win Rate (A): {results['winrate']:.1%}")
+    print(f"   ✅ Wins:   {results['num_wins']}")
+    print(f"   ❌ Losses: {results['num_losses']}")
+    print(f"   🤝 Ties:   {results['num_ties']}")
+    print("=" * 60 + "\n")
 
 
 def main(args: CliArgs):
@@ -198,9 +219,7 @@ def main(args: CliArgs):
         "/", "_"
     )
 
-    date = datetime.now().isoformat()
-
-    res_folder = data_root / "results" / date
+    res_folder = Path("results") / name
     res_folder.mkdir(parents=True, exist_ok=True)
 
     print(f"Saving results to {res_folder}")
@@ -208,12 +227,13 @@ def main(args: CliArgs):
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
     df["model_A"] = args.model_A
     df["model_B"] = args.model_B
+    df["judge"] = args.judge_model
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
     prefs = pd.Series([annotation.preference for annotation in annotations])
     num_wins = sum(prefs < 0.5)
     num_losses = sum(prefs > 0.5)
-    num_ties = sum(prefs == 0.5)
+    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
     num_battles = len(prefs)
     winrate = float(num_wins / num_battles)
 
@@ -228,11 +248,11 @@ def main(args: CliArgs):
         "num_losses": num_losses,
         "num_ties": num_ties,
         "preferences": prefs.tolist(),
-        "date": date,
+        "date": str(datetime.now().isoformat()),
         "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
-    print(results)
+    print_results(results)
 
     with open(res_folder / f"args-{name}.json", "w") as f:
         json.dump(asdict(args), f, indent=2)

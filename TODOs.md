@@ -1,7 +1,8 @@
 TODOs:
-* support evaluation with input swap 
+* push on pypi
 * rename {lang}-contexts to fluency-{lang}
 * document on the fly evaluations with custom prompt
+* support evaluation with input swap 
 * handle errors
 * CI [high/large]
 * implement CI judge option
@@ -29,3 +30,4 @@ Done:
 * add details to example to generate and evaluate completions
 * installation instructions
 * generate proper json of results
+* improve login of results
