@@ -1,6 +1,5 @@
 TODOs:
 * push on pypi
-* rename {lang}-contexts to fluency-{lang}
 * document on the fly evaluations with custom prompt
 * support evaluation with input swap 
 * handle errors
@@ -31,3 +30,6 @@ Done:
 * installation instructions
 * generate proper json of results
 * improve login of results
+* rename {lang}-contexts to fluency-{lang}
+  * needs renaming of datasets
+  * update in code and doc

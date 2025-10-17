@@ -85,14 +85,14 @@ python openjury/generate_and_evaluate.py \
 
 ## 📊 Supported Datasets
 
-| Dataset | Description                                                                                    |
-|---------|------------------------------------------------------------------------------------------------|
-| `alpaca-eval` | General instruction-following benchmark                                                        |
-| `arena-hard` | More challenging evaluation suite                                                              |
-| `m-arena-hard` | Translated version of Arena-Hard in 23 languages                                               |
+| Dataset               | Description                                                                                    |
+|-----------------------|------------------------------------------------------------------------------------------------|
+| `alpaca-eval`         | General instruction-following benchmark                                                        |
+| `arena-hard`          | More challenging evaluation suite                                                              |
+| `m-arena-hard`        | Translated version of Arena-Hard in 23 languages                                               |
 | `m-arena-hard-{lang}` | Language-specific variants (e.g., `ar`, `cs`, `de`)                                            |
-| `m-arena-hard-EU` | All EU languages combined                                                                      |
-| `{lang}-contexts` | Fluency evaluation for pretrained models (`finnish`, `french`, `german`, `spanish`, `swedish`) |
+| `m-arena-hard-EU`     | All EU languages combined                                                                      |
+| `fluency-{lang}`      | Fluency evaluation for pretrained models (`finnish`, `french`, `german`, `spanish`, `swedish`) |
 
 ### Offline Setup (Slurm/Air-Gapped Environments)
 

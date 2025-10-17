@@ -77,7 +77,7 @@ class CliArgs:
         parser.add_argument(
             "--use_tqdm",
             action="store_true",
-            help="If specified, use tqdm, does not work with all model providers.",
+            help="If specified, use tqdm, does not work with all model providers, vLLM in particular.",
         )
 
         args = parser.parse_args()
@@ -130,23 +130,22 @@ def main(args: CliArgs):
     3) create annotations
     """
 
-    is_base_model = "context" in args.dataset
-    if is_base_model:
-        print(
-            f"Using dataset {args.dataset} and evaluating base models {args.model_A} and {args.model_B}."
-        )
-    else:
-        print(
-            f"Using dataset {args.dataset} and instruction-tuned models {args.model_A} and {args.model_B}."
-        )
+    print(
+        f"Using dataset {args.dataset} and evaluating models {args.model_A} and {args.model_B}."
+    )
 
     # Not working with vllm, not detecting model changes and serving the same cache for two different models...
-    # # if not args.ignore_cache:
-    # #     set_langchain_cache()
+    # if not args.ignore_cache:
+    #     set_langchain_cache()
     ignore_cache = args.ignore_cache
 
-    if is_base_model:
-        instructions = load_contexts(args.dataset + ".csv")
+    # Currrently, we run context evaluation
+    is_fluency_task = "fluency" in args.dataset
+    if is_fluency_task:
+        # if args.dataset = "fluency-french", we map to "french-contexts.csv"
+        # to match files in https://huggingface.co/datasets/geoalgo/multilingual-contexts-to-be-completed
+        lang = args.dataset.split("-")[-1]
+        instructions = load_contexts(f"{lang}-contexts.csv")
     else:
         instructions = load_instructions(
             dataset=args.dataset, n_instructions=args.n_instructions
@@ -161,7 +160,8 @@ def main(args: CliArgs):
         f"{args.model_B} (or loading them directly if present)"
     )
 
-    gen_fun = generate_base if is_base_model else generate_instructions
+    # TODO currently we just support base models for fluency, we could also support instruction-tuned models
+    gen_fun = generate_base if is_fluency_task else generate_instructions
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
             instructions=instructions,
@@ -194,7 +194,7 @@ def main(args: CliArgs):
         model=args.judge_model,
         max_tokens=512,
     )
-    if is_base_model:
+    if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
         model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
         completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
