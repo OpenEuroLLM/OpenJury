@@ -1,6 +1,11 @@
 TODOs:
 * push on pypi
 * document on the fly evaluations with custom prompt
+* support instruction evaluation
+  * small refactor `annotate` needs to return just the judge completion, not the parsed one
+  * perhaps change to `annotate_pair` and `annotate_single`
+  * then provide example
+* support MT-bench
 * support evaluation with input swap 
 * handle errors
 * CI [high/large]

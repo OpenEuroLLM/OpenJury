@@ -45,16 +45,33 @@ Compare two models head-to-head:
 ```bash
 python openjury/generate_and_evaluate.py \
   --dataset alpaca-eval \
-  --model_A Together/meta-llama/Llama-3.3-70B-Instruct-Turbo \
-  --model_B gpt4_1106_preview \
-  --judge_model Together/meta-llama/Llama-3.3-70B-Instruct-Turbo \
+  --model_A gpt4_1106_preview \
+  --model_B VLLM/utter-project/EuroLLM-9B \
+  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
   --n_instructions 10 
 ```
 
 **What happens here?**
-- Generates completions for `model_A` if not already cached
-- Compares against existing `model_B` completions from Alpaca-Eval database
-- Uses your chosen judge model to evaluate the results
+- Use completions available for `gpt4_1106_preview` in Alpaca-Eval dataset
+- Generates completions for `model_B` if not already cached on `vLLM`
+- Compares two models using `deepseek-chat-v3.1` which the cheapest option available on `OpenRouter` 
+
+It will then display the results of the battles:
+
+```bash
+============================================================
+                  🏆 MODEL BATTLE RESULTS 🏆                  
+📊 Dataset: alpaca-eval
+🤖 Competitors: Model A: gpt4_1106_preview vs Model B: VLLM/utter-project/EuroLLM-9B
+⚖️ Judge: OpenRouter/deepseek/deepseek-chat-v3.1
+📈 Results Summary:
+   Total Battles: 10
+   Win Rate (A): 30.0%
+   ✅ Wins:   3
+   ❌ Losses: 6
+   🤝 Ties:   1
+============================================================
+```
 
 ## 🎨 Model Specification
 
@@ -66,7 +83,7 @@ Models are specified using the format: `{LangChain Backend}/{Model Path}`
 Together/meta-llama/Llama-3.3-70B-Instruct-Turbo
 ChatOpenAI/gpt-4o
 LlamaCpp/jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf
-VLLM/MultiSynt/nemotron-cc-german-9b
+VLLM/utter-project/EuroLLM-9B
 OpenRouter/deepseek/deepseek-chat-v3.1
 ```
 
@@ -82,6 +99,7 @@ python openjury/generate_and_evaluate.py \
 ```
 
 **Note:** Ensure you have the required LangChain dependencies installed for your chosen provider.
+If you use remote endpoint, you would have to set your credentials.
 
 ## 📊 Supported Datasets
 
@@ -125,6 +143,6 @@ If you use this work in your research, please cite the following paper.
 }
 ```
 
-The judge configurations are the best one found in this paper and a lot of code is reused in this package.
+The judge configurations was tuned in this paper and a lot of code is reused in this package.
 
 ---
