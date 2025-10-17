@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate
+from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
 from openjury.utils import data_root
@@ -172,6 +172,7 @@ def main(args: CliArgs):
         cache_name=f"{args.dataset}_{args.model_A}_{args.n_instructions}",
     ).set_index("instruction_index")
     completions_A = completions_A.loc[:, "completion"]
+
     completions_B = cache_function_dataframe(
         lambda: gen_fun(
             instructions=instructions,
@@ -204,7 +205,7 @@ def main(args: CliArgs):
         # the default system prompt of annotate is to compare instruction tuned models.
 
         system_prompt = None
-    annotations = annotate(
+    annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         user_prompts=instructions.head(n_instructions).tolist(),
         completions_A=completions_A.head(n_instructions).tolist(),
@@ -222,6 +223,10 @@ def main(args: CliArgs):
     res_folder = Path("results") / name
     res_folder.mkdir(parents=True, exist_ok=True)
 
+    # save argument for results analysis
+    with open(res_folder / f"args-{name}.json", "w") as f:
+        json.dump(asdict(args), f, indent=2)
+
     print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
@@ -230,7 +235,16 @@ def main(args: CliArgs):
     df["judge"] = args.judge_model
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
-    prefs = pd.Series([annotation.preference for annotation in annotations])
+    # compute preferences between A and B
+    score_parser = PairScore()
+    prefs = pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
+
+    # compute and report statistics
     num_wins = sum(prefs < 0.5)
     num_losses = sum(prefs > 0.5)
     num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
@@ -253,9 +267,6 @@ def main(args: CliArgs):
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
-
-    with open(res_folder / f"args-{name}.json", "w") as f:
-        json.dump(asdict(args), f, indent=2)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)

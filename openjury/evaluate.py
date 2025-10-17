@@ -138,7 +138,7 @@ def evaluate_completions(
 
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
-    annotations = annotate(
+    annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         user_prompts=instructions.tolist(),
         completions_A=completions_A.loc[instructions.index].tolist(),
@@ -180,13 +180,12 @@ def evaluate_completions(
 @dataclass
 class JudgeAnnotation:
     judge_completion: str
-    preference: float
     instruction: str
     completion_A: str
     completion_B: str
 
 
-def annotate(
+def annotate_battles(
     judge_chat_model,
     user_prompts: list[str],
     completions_A: list[str],
@@ -270,15 +269,12 @@ def annotate(
     )
 
     annotations = []
-    score_parser = PairScore()
     for judge_completion, instruction, completion_A, completion_B in zip(
         judge_completions, user_prompts, completions_A, completions_B
     ):
-        score = score_parser.parse_model_raw(judge_completion)
         annotations.append(
             JudgeAnnotation(
                 judge_completion=judge_completion,
-                preference=score,
                 instruction=instruction,
                 completion_A=completion_A,
                 completion_B=completion_B,

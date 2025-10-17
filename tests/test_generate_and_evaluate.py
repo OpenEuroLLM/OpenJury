@@ -12,9 +12,9 @@ def test_generate_and_evaluate_context_completion(dataset: str):
     main_generate_and_eval(
         CliArgs(
             dataset=dataset,
-            model_A="Dummy",
-            model_B="Dummy",
-            judge_model="Dummy",
+            model_A="Dummy/no answer",
+            model_B="Dummy/open is better than close isnt'it",
+            judge_model="Dummy/score A: 0 score B: 10",
             n_instructions=5,
         )
     )
