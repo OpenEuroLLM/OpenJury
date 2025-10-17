@@ -140,7 +140,7 @@ def evaluate_completions(
 
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
-        user_prompts=instructions.tolist(),
+        instructions=instructions.tolist(),
         completions_A=completions_A.loc[instructions.index].tolist(),
         completions_B=completions_B.loc[instructions.index].tolist(),
         use_tqdm=use_tqdm,
@@ -187,7 +187,7 @@ class JudgeAnnotation:
 
 def annotate_battles(
     judge_chat_model,
-    user_prompts: list[str],
+    instructions: list[str],
     completions_A: list[str],
     completions_B: list[str],
     system_prompt: str | None = None,
@@ -202,7 +202,7 @@ def annotate_battles(
     `system_prompt, user_prompt_template = load_judge_system_and_user_prompt()`
     Example usage:
     ```python
-    annotations = annotate(
+    annotations = annotate_battles(
         # can be any langchain ChatModel, supports OpenAI, Together, vLLM, ...
         judge_chat_model=Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         # the instructions we want to evaluate
@@ -215,7 +215,7 @@ def annotate_battles(
     ```
     :param provide_explanation:
     :param judge_chat_model:
-    :param user_prompts:
+    :param instructions:
     :param completions_A:
     :param completions_B:
     :param system_prompt:
@@ -226,7 +226,7 @@ def annotate_battles(
     :return:
     """
     # alternatively pass list of tuples
-    assert len(user_prompts) == len(completions_A) == len(completions_B)
+    assert len(instructions) == len(completions_A) == len(completions_B)
 
     (
         default_system_prompt,
@@ -257,7 +257,7 @@ def annotate_battles(
                 "completion_B": truncate(completion_B, max_len=max_len),
             }
             for user_prompt, completion_A, completion_B in zip(
-                user_prompts, completions_A, completions_B
+                instructions, completions_A, completions_B
             )
         ]
     )
@@ -270,7 +270,7 @@ def annotate_battles(
 
     annotations = []
     for judge_completion, instruction, completion_A, completion_B in zip(
-        judge_completions, user_prompts, completions_A, completions_B
+        judge_completions, instructions, completions_A, completions_B
     ):
         annotations.append(
             JudgeAnnotation(

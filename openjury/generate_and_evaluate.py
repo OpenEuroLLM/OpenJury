@@ -207,7 +207,7 @@ def main(args: CliArgs):
         system_prompt = None
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
-        user_prompts=instructions.head(n_instructions).tolist(),
+        instructions=instructions.head(n_instructions).tolist(),
         completions_A=completions_A.head(n_instructions).tolist(),
         completions_B=completions_B.head(n_instructions).tolist(),
         provide_explanation=args.provide_explanation,
