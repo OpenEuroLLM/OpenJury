@@ -271,6 +271,8 @@ def main(args: CliArgs):
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
 
+    return prefs
+
 
 if __name__ == "__main__":
     args = CliArgs.parse_args()

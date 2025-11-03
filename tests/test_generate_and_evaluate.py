@@ -9,7 +9,7 @@ from openjury.generate_and_evaluate import (
     "dataset", ["alpaca-eval", "fluency-french", "m-arena-hard-EU"]
 )
 def test_generate_and_evaluate_context_completion(dataset: str):
-    main_generate_and_eval(
+    prefs = main_generate_and_eval(
         CliArgs(
             dataset=dataset,
             model_A="Dummy/no answer",
@@ -18,3 +18,6 @@ def test_generate_and_evaluate_context_completion(dataset: str):
             n_instructions=5,
         )
     )
+
+    avg_pref = sum(prefs) / len(prefs)
+    assert avg_pref >= 0.9
