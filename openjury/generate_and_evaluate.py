@@ -205,6 +205,10 @@ def main(args: CliArgs):
         # the default system prompt of annotate is to compare instruction tuned models.
 
         system_prompt = None
+
+    # compute preferences between A and B
+    score_parser = PairScore()
+
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.head(n_instructions).tolist(),
@@ -215,6 +219,28 @@ def main(args: CliArgs):
         max_len=200,
         use_tqdm=args.use_tqdm,
     )
+    prefs = [
+        score_parser.parse_model_raw(annotation.judge_completion)
+        for annotation in annotations
+    ]
+
+    if args.swap_order:
+        annotations_swapped = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions.head(n_instructions).tolist(),
+            completions_A=completions_B.head(n_instructions).tolist(),
+            completions_B=completions_A.head(n_instructions).tolist(),
+            provide_explanation=args.provide_explanation,
+            system_prompt=system_prompt,
+            max_len=200,
+            use_tqdm=args.use_tqdm,
+        )
+        # need to revert preferences
+        prefs += [
+            1 - score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations_swapped
+        ]
+        annotations += annotations_swapped
 
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}".replace(
         "/", "_"
@@ -234,15 +260,6 @@ def main(args: CliArgs):
     df["model_B"] = args.model_B
     df["judge"] = args.judge_model
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
-
-    # compute preferences between A and B
-    score_parser = PairScore()
-    prefs = pd.Series(
-        [
-            score_parser.parse_model_raw(annotation.judge_completion)
-            for annotation in annotations
-        ]
-    )
 
     # compute and report statistics
     num_wins = sum(prefs < 0.5)
