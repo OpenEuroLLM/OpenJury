@@ -93,7 +93,7 @@ def evaluate_completions(
 
     instructions = load_instructions(
         dataset=dataset,
-    )
+    ).loc[:, "instruction"]
 
     # A bit ugly, only loads if local path exist as we do not have a local path of completion for cases such as
     # m-arena-hard.

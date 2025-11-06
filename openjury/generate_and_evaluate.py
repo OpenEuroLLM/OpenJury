@@ -149,7 +149,7 @@ def main(args: CliArgs):
     else:
         instructions = load_instructions(
             dataset=args.dataset, n_instructions=args.n_instructions
-        )
+        ).loc[:, "instruction"]
 
     n_instructions = args.n_instructions if args.n_instructions else len(instructions)
     if args.n_instructions is not None:
