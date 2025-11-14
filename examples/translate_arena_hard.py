@@ -11,18 +11,19 @@ Dataset is uploaded at:
 https://huggingface.co/datasets/openeurollm/ArenaHard-EU/
 """
 
-import os
 from pathlib import Path
 
 import pandas as pd
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
+from langchain.prompts import ChatPromptTemplate
 
 from openjury.instruction_dataset import load_instructions
 from openjury.utils import do_inference, make_model
-from langchain.prompts import ChatPromptTemplate
 from openjury.utils import set_langchain_cache
 
-set_langchain_cache()
+# set_langchain_cache()
+
+dataset_name = "openeurollm/ArenaHard-EU-v0-bis"
 
 """
 TODOs:
@@ -36,45 +37,45 @@ Done:
 """
 languages = [
     ("fra", "French"),
-    ("spa", "Spanish"),
-    ("deu", "German"),
-    ("bul", "Bulgarian"),
-    ("ces", "Czech"),
-    ("dan", "Danish"),
-    ("ell", "Greek"),
-    # ("eng", "English"),
-    ("est", "Estonian"),
+    # ("spa", "Spanish"),
+    # ("deu", "German"),
+    # ("bul", "Bulgarian"),
+    # ("ces", "Czech"),
+    # ("dan", "Danish"),
+    # ("ell", "Greek"),
+    # # ("eng", "English"),
+    # ("est", "Estonian"),
     ("fin", "Finnish"),
-    ("gle", "Irish"),
-    ("hrv", "Croatian"),
-    ("hun", "Hungarian"),
-    ("ita", "Italian"),
-    ("lav", "Latvian"),
-    ("lit", "Lithuanian"),
-    ("mlt", "Maltese"),
-    ("nld", "Dutch"),
-    ("pol", "Polish"),
-    ("por", "Portuguese"),
-    ("ron", "Romanian"),
-    ("slk", "Slovak"),
-    ("slv", "Slovene"),
-    ("swe", "Swedish"),
-    ("cat", "Catalan"),
-    ("eus", "Basque"),
-    ("glg", "Galician"),
-    ("bos", "Bosnian"),
-    ("kat", "Georgian"),
-    ("mkd", "Macedonian"),
-    ("sqi", "Albanian"),
-    ("srp", "Serbian"),
-    ("tur", "Turkish"),
-    ("ukr", "Ukrainian"),
-    ("isl", "Icelandic"),
-    ("nor", "Norwegian"),
+    # ("gle", "Irish"),
+    # ("hrv", "Croatian"),
+    # ("hun", "Hungarian"),
+    # ("ita", "Italian"),
+    # ("lav", "Latvian"),
+    # ("lit", "Lithuanian"),
+    # ("mlt", "Maltese"),
+    # ("nld", "Dutch"),
+    # ("pol", "Polish"),
+    # ("por", "Portuguese"),
+    # ("ron", "Romanian"),
+    # ("slk", "Slovak"),
+    # ("slv", "Slovene"),
+    # ("swe", "Swedish"),
+    # ("cat", "Catalan"),
+    # ("eus", "Basque"),
+    # ("glg", "Galician"),
+    # ("bos", "Bosnian"),
+    # ("kat", "Georgian"),
+    # ("mkd", "Macedonian"),
+    # ("sqi", "Albanian"),
+    # ("srp", "Serbian"),
+    # ("tur", "Turkish"),
+    # ("ukr", "Ukrainian"),
+    # ("isl", "Icelandic"),
+    # ("nor", "Norwegian"),
 ]
 
-# translator_model = "OpenRouter/openai/gpt-5"
-translator_model = "OpenRouter/deepseek/deepseek-chat-v3.1"
+translator_model = "OpenRouter/openai/gpt-5"
+# translator_model = "OpenRouter/deepseek/deepseek-chat-v3.1"
 n_instructions = 10
 df_instructions = load_instructions(
     "arena-hard",
@@ -113,8 +114,11 @@ def generate_translations():
 
         user_prompt_template = f"""\
         Your task is to translate the following text from English to {target_language}.
-        Do not answer the instruction, just translate it.
-        **Keep a format tone adapted for the target language, most language would not use "Vous" or "Sie" when talking to a chatbot.**
+        
+        Important:
+        * Do not answer the instruction, just translate it.
+        * If any code is present in the instruction, **do not change it and do not translate it**.
+        * Keep a formality adapted for the target language, most language would not use "Vous" or "Sie" when talking to a chatbot.
         
         # Input text
         {{instruction}}
@@ -160,7 +164,6 @@ def generate_translations():
 
 # upload to HuggingFace
 def upload_hugging_face():
-    dataset = "openeurollm/ArenaHard-EU"
 
     # Upload each language as a separate config
     for lang, _ in languages + [("eng", "English")]:
@@ -172,7 +175,7 @@ def upload_hugging_face():
 
         # Push to hub with config_name
         dataset.push_to_hub(
-            "openeurollm/mock",
+            repo_id=dataset_name,
             config_name=lang,  # Each language becomes a separate config
             split="train",  # Specify the split (train/validation/test)
             private=False,
@@ -181,5 +184,5 @@ def upload_hugging_face():
     print("All languages uploaded successfully!")
 
 
-# generate_translations()
+generate_translations()
 upload_hugging_face()

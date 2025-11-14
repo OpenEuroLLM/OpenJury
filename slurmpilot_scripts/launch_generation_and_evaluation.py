@@ -15,12 +15,12 @@ qwen_models = [
 ]
 
 for language in [
-    # "italian",
+    "italian",
     "spanish",
-    # "german",
-    # "french",
-    # "swedish",
-    # "finnish",
+    "german",
+    "french",
+    "swedish",
+    "finnish",
 ]:
     if language == "spanish":
         baseline = "VLLM/HPLT/hplt2c_spa_checkpoints"
@@ -65,7 +65,7 @@ for language in [
     job_info = JobCreationInfo(
         cluster=cluster,
         partition="alldlc2_gpu-h200",
-        jobname=unify(f"oellmjudge-v2/{language}-eval", method="date"),
+        jobname=unify(f"oellmjudge-v3/{language}-eval", method="date"),
         entrypoint="generate_and_evaluate.py",
         python_binary="/work/dlclarge1/salinasd-llm-judge/check/llm-judge-eval/.venv/bin/python",
         python_args=[
