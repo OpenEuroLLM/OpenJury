@@ -249,7 +249,7 @@ def main(args: CliArgs):
     num_losses = sum(prefs > 0.5)
     num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
     num_battles = len(prefs)
-    winrate = float(num_wins / num_battles)
+    winrate = float(num_wins / (num_losses + num_wins + num_ties))
 
     results = {
         "dataset": args.dataset,
@@ -261,6 +261,7 @@ def main(args: CliArgs):
         "num_wins": num_wins,
         "num_losses": num_losses,
         "num_ties": num_ties,
+        "num_missing": num_battles - (num_losses + num_wins + num_ties),
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
         "user": os.getenv("USER", ""),
