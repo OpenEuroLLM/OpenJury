@@ -155,7 +155,7 @@ def evaluate_completions(
     num_losses = sum(prefs > 0.5)
     num_ties = sum(prefs == 0.5)
     num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / num_battles)
+    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
 
     results = {
         "num_battles": num_battles,
