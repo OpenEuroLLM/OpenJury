@@ -296,7 +296,7 @@ def main(args: CliArgs):
                 for annotation in annotations_reversed
             ]
         )
-        prefs = (prefs + (1 - prefs_reversed)) / 2.0
+        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
     num_wins = sum(prefs < 0.5)
