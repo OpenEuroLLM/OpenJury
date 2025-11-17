@@ -29,7 +29,7 @@ class CliArgs:
 
     n_instructions: int | None = None
     provide_explanation: bool = False
-    swap_mode: bool = False
+    swap_mode: str = "fixed"
     ignore_cache: bool = False
     use_tqdm: bool = False
 
@@ -236,7 +236,7 @@ def main(args: CliArgs):
         use_tqdm=args.use_tqdm,
     )
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         print("Correction for judge bias towards a certain model position is set.")
         print(f"Evaluating completions with models reversed with judge {args.judge_model}.")
         annotations_reversed = annotate_battles(
@@ -270,7 +270,7 @@ def main(args: CliArgs):
     df["model_B"] = args.model_B
     df["judge"] = args.judge_model
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         df_reversed = pd.DataFrame(annotations_reversed)
         df_reversed["instruction_index"] = instructions.head(n_instructions).index.tolist()
         df_reversed["model_A"] = args.model_B
@@ -289,7 +289,7 @@ def main(args: CliArgs):
         ]
     )
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         prefs_reversed = pd.Series(
             [
                 score_parser.parse_model_raw(annotation.judge_completion)
