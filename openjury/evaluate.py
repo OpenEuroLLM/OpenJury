@@ -153,9 +153,9 @@ def evaluate_completions(
     prefs = pd.Series([annotation.preference for annotation in annotations])
     num_wins = sum(prefs < 0.5)
     num_losses = sum(prefs > 0.5)
-    num_ties = sum(prefs == 0.5)
+    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
     num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / num_battles)
+    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
 
     results = {
         "num_battles": num_battles,
