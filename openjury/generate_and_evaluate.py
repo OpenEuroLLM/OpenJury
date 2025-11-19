@@ -29,11 +29,17 @@ class CliArgs:
 
     n_instructions: int | None = None
     provide_explanation: bool = False
-    swap_mode: bool = False
+    swap_mode: str = "fixed"
     ignore_cache: bool = False
     use_tqdm: bool = False
 
     result_folder: str = "results"
+
+    def __post_init__(self):
+        supported_modes = ["fixed", "both"]
+        assert (
+            self.swap_mode in supported_modes
+        ), f"Only {supported_modes} modes are supported but got {self.swap_mode}."
 
     @classmethod
     def parse_args(cls):
@@ -236,9 +242,11 @@ def main(args: CliArgs):
         use_tqdm=args.use_tqdm,
     )
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         print("Correction for judge bias towards a certain model position is set.")
-        print(f"Evaluating completions with models reversed with judge {args.judge_model}.")
+        print(
+            f"Evaluating completions with models reversed with judge {args.judge_model}."
+        )
         annotations_reversed = annotate_battles(
             judge_chat_model=judge_chat_model,
             instructions=instructions.head(n_instructions).tolist(),
@@ -252,9 +260,7 @@ def main(args: CliArgs):
 
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
     name += f"-{args.swap_mode}"
-    name = name.replace(
-        "/", "_"
-    )
+    name = name.replace("/", "_")
 
     res_folder = Path(args.result_folder) / name
     res_folder.mkdir(parents=True, exist_ok=True)
@@ -270,9 +276,11 @@ def main(args: CliArgs):
     df["model_B"] = args.model_B
     df["judge"] = args.judge_model
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         df_reversed = pd.DataFrame(annotations_reversed)
-        df_reversed["instruction_index"] = instructions.head(n_instructions).index.tolist()
+        df_reversed["instruction_index"] = instructions.head(
+            n_instructions
+        ).index.tolist()
         df_reversed["model_A"] = args.model_B
         df_reversed["model_B"] = args.model_A
         df_reversed["judge"] = args.judge_model
@@ -289,14 +297,14 @@ def main(args: CliArgs):
         ]
     )
 
-    if args.swap_mode:
+    if args.swap_mode == "both":
         prefs_reversed = pd.Series(
             [
                 score_parser.parse_model_raw(annotation.judge_completion)
                 for annotation in annotations_reversed
             ]
         )
-        prefs = (prefs + (1 - prefs_reversed)) / 2.0
+        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
     num_wins = sum(prefs < 0.5)
