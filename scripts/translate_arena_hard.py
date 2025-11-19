@@ -27,13 +27,13 @@ dataset_name = "openeurollm/ArenaHard-EU-v0-bis"
 
 """
 TODOs:
-- update to HF
 - test with openjury
 Done:
 - load AH
 - call translate
 - check translate quality in French
 - dump data to disk
+- update to HF
 """
 languages = [
     ("fra", "French"),
@@ -74,7 +74,7 @@ languages = [
     # ("nor", "Norwegian"),
 ]
 
-translator_model = "OpenRouter/openai/gpt-5"
+translator_model = "OpenRouter/openai/gpt-5-mini"
 # translator_model = "OpenRouter/deepseek/deepseek-chat-v3.1"
 n_instructions = 10
 df_instructions = load_instructions(
