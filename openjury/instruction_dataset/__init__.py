@@ -3,7 +3,7 @@ from openjury.instruction_dataset.m_arenahard import load_m_arenahard
 from openjury.utils import data_root, download_hf, read_df
 
 
-def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Series:
+def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.DataFrame:
     if "m-arena-hard" in dataset:
         if dataset == "m-arena-hard":
             language = None
@@ -61,7 +61,7 @@ def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Ser
     print(f"Loaded {len(df_instructions)} instructions for {dataset}.")
     if n_instructions is None:
         n_instructions = len(df_instructions)
-    return df_instructions.loc[:, "instruction"].head(n_instructions)
+    return df_instructions.head(n_instructions)
 
 
 if __name__ == "__main__":

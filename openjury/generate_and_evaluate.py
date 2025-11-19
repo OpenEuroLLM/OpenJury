@@ -29,8 +29,11 @@ class CliArgs:
 
     n_instructions: int | None = None
     provide_explanation: bool = False
+    swap_mode: bool = False
     ignore_cache: bool = False
     use_tqdm: bool = False
+
+    result_folder: str = "results"
 
     @classmethod
     def parse_args(cls):
@@ -70,6 +73,15 @@ class CliArgs:
             "the accuracy of the judge but enables some result interpretation.",
         )
         parser.add_argument(
+            "--swap_mode",
+            type=str,
+            choices=["fixed", "both"],
+            default="fixed",
+            help="Model comparison order mode. 'fixed': always use model order A-B. 'both': correct for model order "
+            "bias by evaluating each instruction twice, once as A-B and once as B-A, and average. This helps account "
+            "for judge position bias. Default is 'fixed'.",
+        )
+        parser.add_argument(
             "--ignore_cache",
             action="store_true",
             help="If specified, ignore cache of previous completions.",
@@ -79,7 +91,14 @@ class CliArgs:
             action="store_true",
             help="If specified, use tqdm, does not work with all model providers, vLLM in particular.",
         )
-
+        parser.add_argument(
+            "--result_folder",
+            type=str,
+            required=False,
+            default="results",
+            help="The folder to save the results. Defaults to `results`. Evaluation results will be saved in"
+            " `[result_folder]/[evaluation_name]`.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -89,6 +108,7 @@ class CliArgs:
             judge_model=args.judge_model,
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
+            swap_mode=args.swap_mode,
             ignore_cache=args.ignore_cache,
             use_tqdm=args.use_tqdm,
         )
@@ -149,7 +169,7 @@ def main(args: CliArgs):
     else:
         instructions = load_instructions(
             dataset=args.dataset, n_instructions=args.n_instructions
-        )
+        ).loc[:, "instruction"]
 
     n_instructions = args.n_instructions if args.n_instructions else len(instructions)
     if args.n_instructions is not None:
@@ -216,11 +236,27 @@ def main(args: CliArgs):
         use_tqdm=args.use_tqdm,
     )
 
-    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}".replace(
+    if args.swap_mode:
+        print("Correction for judge bias towards a certain model position is set.")
+        print(f"Evaluating completions with models reversed with judge {args.judge_model}.")
+        annotations_reversed = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions.head(n_instructions).tolist(),
+            completions_A=completions_B.head(n_instructions).tolist(),
+            completions_B=completions_A.head(n_instructions).tolist(),
+            provide_explanation=args.provide_explanation,
+            system_prompt=system_prompt,
+            max_len=200,
+            use_tqdm=args.use_tqdm,
+        )
+
+    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
+    name += f"-{args.swap_mode}"
+    name = name.replace(
         "/", "_"
     )
 
-    res_folder = Path("results") / name
+    res_folder = Path(args.result_folder) / name
     res_folder.mkdir(parents=True, exist_ok=True)
 
     # save argument for results analysis
@@ -233,6 +269,15 @@ def main(args: CliArgs):
     df["model_A"] = args.model_A
     df["model_B"] = args.model_B
     df["judge"] = args.judge_model
+
+    if args.swap_mode:
+        df_reversed = pd.DataFrame(annotations_reversed)
+        df_reversed["instruction_index"] = instructions.head(n_instructions).index.tolist()
+        df_reversed["model_A"] = args.model_B
+        df_reversed["model_B"] = args.model_A
+        df_reversed["judge"] = args.judge_model
+        df = pd.concat([df, df_reversed])
+
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
     # compute preferences between A and B
@@ -243,6 +288,15 @@ def main(args: CliArgs):
             for annotation in annotations
         ]
     )
+
+    if args.swap_mode:
+        prefs_reversed = pd.Series(
+            [
+                score_parser.parse_model_raw(annotation.judge_completion)
+                for annotation in annotations_reversed
+            ]
+        )
+        prefs = (prefs + (1 - prefs_reversed)) / 2.0
 
     # compute and report statistics
     num_wins = sum(prefs < 0.5)
@@ -261,6 +315,7 @@ def main(args: CliArgs):
         "num_wins": num_wins,
         "num_losses": num_losses,
         "num_ties": num_ties,
+        "num_missing": num_battles - (num_losses + num_wins + num_ties),
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
         "user": os.getenv("USER", ""),

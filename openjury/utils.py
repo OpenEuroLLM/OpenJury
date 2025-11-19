@@ -104,7 +104,9 @@ def make_model(model: str, max_tokens: int | None = 200):
     model_kwargs = {}
     if max_tokens is not None:
         if model_provider == "VLLM":
-            model_kwargs["max_model_len"] = max_tokens
+            model_kwargs["vllm_kwargs"] = {
+                "max_model_len": max_tokens,
+            }
         else:
             # TODO allow to specify kwargs in model string
             model_kwargs["max_tokens"] = max_tokens
