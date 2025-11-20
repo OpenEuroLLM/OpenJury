@@ -219,7 +219,7 @@ def main(args: CliArgs):
 
     judge_chat_model = make_model(
         model=args.judge_model,
-        max_tokens=512,
+        max_tokens=8192,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \

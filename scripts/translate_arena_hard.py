@@ -74,7 +74,7 @@ languages = [
     # ("nor", "Norwegian"),
 ]
 
-translator_model = "OpenRouter/openai/gpt-5-mini"
+translator_model = "OpenRouter/openai/gpt-5"
 # translator_model = "OpenRouter/deepseek/deepseek-chat-v3.1"
 n_instructions = 10
 df_instructions = load_instructions(
