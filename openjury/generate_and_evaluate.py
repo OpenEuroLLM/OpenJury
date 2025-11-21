@@ -8,6 +8,7 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -187,7 +188,11 @@ def main(args: CliArgs):
     )
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
-    gen_fun = generate_base if is_fluency_task else generate_instructions
+    gen_fun = (
+        generate_base
+        if is_fluency_task
+        else partial(generate_instructions, max_len=2048)
+    )
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
             instructions=instructions,
@@ -219,7 +224,7 @@ def main(args: CliArgs):
 
     judge_chat_model = make_model(
         model=args.judge_model,
-        max_tokens=8192,
+        max_tokens=32768,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
