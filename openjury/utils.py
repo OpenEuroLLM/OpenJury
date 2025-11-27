@@ -264,7 +264,7 @@ def cache_function_dataframe(
     cache_name: str,
     ignore_cache: bool = False,
     cache_path: Path | None = None,
-):
+) -> pd.DataFrame:
     f"""
     :param fun: a function whose dataframe result obtained `fun()` will be cached
     :param cache_name: the cache of the function result is written into `{cache_path}/{cache_name}.csv.zip`

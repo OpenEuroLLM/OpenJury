@@ -10,8 +10,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets>=4.0.0",
+    "fast-langdetect>=1.0.0",
     "huggingface-hub>=0.34.4",
     "ipython>=9.5.0",
+    "joblib>=1.5.2",
     "jupyter>=1.1.1",
     "langchain>=0.3.27",
     "langchain-community>=0.3.29",
@@ -20,7 +22,10 @@ dependencies = [
     "matplotlib>=3.10.6",
     "pandas>=2.3.2",
     "rich>=14.1.0",
+    "scikit-learn>=1.7.2",
+    "seaborn>=0.13.2",
     "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
+    "tqdm>=4.67.1",
 ]
 
 [tool.setuptools.packages.find]
