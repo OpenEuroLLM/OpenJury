@@ -72,7 +72,7 @@ def evaluate_completions(
     method_B: str = "llama-2-70b-chat-hf",
     num_annotations: int | None = 50,
     use_tqdm: bool = False,
-    max_len: int | None = 2000,
+    max_len: int | None = 8192,
     provide_explanation: bool = False,
 ):
     """
@@ -192,7 +192,7 @@ def annotate_battles(
     completions_B: list[str],
     system_prompt: str | None = None,
     user_prompt_template: str = None,
-    max_len: int | None = 2000,
+    max_len: int | None = 8192,
     use_tqdm: bool = False,
     provide_explanation: bool = False,
 ) -> list[JudgeAnnotation]:
