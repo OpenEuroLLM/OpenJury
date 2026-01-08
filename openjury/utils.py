@@ -95,24 +95,95 @@ class DummyModel:
         return self.message
 
 
-def make_model(model: str, max_tokens: int | None = 200):
+class ChatVLLM:
+    """VLLM wrapper using the native chat() method for proper chat template handling.
+
+    The default LangChain VLLM wrapper uses vllm.LLM.generate() which does NOT apply
+    the model's chat template. This wrapper uses vllm.LLM.chat() instead, which
+    correctly formats prompts with <|im_start|>, <|im_end|>, <think> tags, etc.
+    """
+
+    def __init__(self, model: str, max_tokens: int = 8192, **vllm_kwargs):
+        from vllm import LLM, SamplingParams
+
+        self.model_path = model
+        self.max_tokens = max_tokens
+        self.llm = LLM(model=model, trust_remote_code=True, **vllm_kwargs)
+        self.sampling_params = SamplingParams(
+            max_tokens=max_tokens,
+            temperature=0.6,
+            top_p=0.95,
+        )
+
+    def _to_messages(self, input_item) -> list[dict]:
+        """Convert LangChain prompt input to OpenAI-style messages."""
+        # Map LangChain message types to OpenAI roles
+        role_map = {"human": "user", "ai": "assistant", "system": "system"}
+
+        # Handle ChatPromptValue from LangChain
+        if hasattr(input_item, "to_messages"):
+            lc_messages = input_item.to_messages()
+            return [
+                {"role": role_map.get(msg.type, msg.type), "content": msg.content}
+                for msg in lc_messages
+            ]
+        # Handle list of tuples like [("system", "..."), ("user", "...")]
+        elif isinstance(input_item, list) and input_item and isinstance(input_item[0], tuple):
+            return [
+                {"role": role if role != "human" else "user", "content": content}
+                for role, content in input_item
+            ]
+        # Handle already formatted messages
+        elif isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+            return input_item
+        # Handle plain string (wrap as user message)
+        elif isinstance(input_item, str):
+            return [{"role": "user", "content": input_item}]
+        else:
+            raise ValueError(f"Unsupported input type: {type(input_item)}")
+
+    def batch(self, inputs: list, **invoke_kwargs) -> list[str]:
+        """Process a batch of inputs using vllm.LLM.chat()."""
+        messages_batch = [self._to_messages(inp) for inp in inputs]
+        outputs = self.llm.chat(
+            messages_batch,
+            self.sampling_params,
+            add_generation_prompt=True,
+        )
+        return [out.outputs[0].text for out in outputs]
+
+    def invoke(self, input_item, **invoke_kwargs) -> str:
+        """Process a single input."""
+        results = self.batch([input_item], **invoke_kwargs)
+        return results[0]
+
+    async def ainvoke(self, input_item, **invoke_kwargs):
+        """Async version - runs sync version in executor for compatibility."""
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.invoke(input_item, **invoke_kwargs))
+
+
+def make_model(model: str, max_tokens: int | None = 8192):
     model_provider = model.split("/")[0]
 
     if model_provider == "Dummy":
         return DummyModel(model)
 
-    model_kwargs = {}
-    if max_tokens is not None:
-        if model_provider == "VLLM":
-            model_kwargs["vllm_kwargs"] = {
-                "max_model_len": max_tokens,
-            }
-        else:
-            # TODO allow to specify kwargs in model string
-            model_kwargs["max_tokens"] = max_tokens
-
     model_name = "/".join(model.split("/")[1:])
     print(f"Loading {model_provider}(model={model_name})")
+
+    # Use our custom ChatVLLM wrapper which properly applies chat templates
+    if model_provider == "VLLM":
+        return ChatVLLM(
+            model=model_name,
+            max_tokens=max_tokens if max_tokens else 8192,
+        )
+
+    model_kwargs = {}
+    if max_tokens is not None:
+        model_kwargs["max_tokens"] = max_tokens
 
     if model_provider == "OpenRouter":
         # Special case we need to override API url and key
@@ -128,13 +199,6 @@ def make_model(model: str, max_tokens: int | None = 200):
             ChatOpenAI,
         ]
         model_kwargs["model"] = model_name
-
-        try:
-            from langchain_community.llms import VLLM
-
-            model_classes.append(VLLM)
-        except ImportError as e:
-            print(str(e))
 
         try:
             from langchain_together.llms import Together
