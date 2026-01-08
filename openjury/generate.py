@@ -17,11 +17,12 @@ def truncate(s: str, max_len: int | None = None):
 def generate_instructions(
     instructions: pd.Series,
     model: str,
-    max_len: int | None = 4096,
+    truncate_input_chars: int | None = 8192,
+    max_tokens: int | None = 32768,
     use_tqdm: bool = True,
     system_prompt: str | None = None,
 ) -> pd.DataFrame:
-    chat_model = make_model(model, max_tokens=max_len)
+    chat_model = make_model(model, max_tokens=max_tokens)
 
     # TODO improve prompt to generate instructions
     if system_prompt is None:
@@ -35,7 +36,7 @@ def generate_instructions(
     inputs = prompt_template.batch(
         [
             {
-                "user_prompt": truncate(user_prompt, max_len=max_len),
+                "user_prompt": truncate(user_prompt, max_len=truncate_input_chars),
             }
             for user_prompt in instructions
         ]
@@ -59,16 +60,17 @@ def generate_instructions(
 def generate_base(
     instructions: pd.Series,
     model: str,
-    max_len: int | None = 2000,
+    truncate_input_chars: int | None = 8192,
+    max_tokens: int | None = 32768,
     use_tqdm: bool = False,
 ) -> pd.DataFrame:
-    model = make_model(model, max_tokens=200)
+    model = make_model(model, max_tokens=max_tokens)
 
-    inputs = [truncate(instruction, max_len=max_len) for instruction in instructions]
+    inputs = [truncate(instruction, max_len=truncate_input_chars) for instruction in instructions]
 
     completions = model.batch(
         inputs=inputs,
-        max_tokens=max_len,
+        max_tokens=max_tokens,
     )
 
     df_outputs = pd.DataFrame(
