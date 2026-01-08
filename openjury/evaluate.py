@@ -72,7 +72,7 @@ def evaluate_completions(
     method_B: str = "llama-2-70b-chat-hf",
     num_annotations: int | None = 50,
     use_tqdm: bool = False,
-    max_len: int | None = 8192,
+    truncate_input_chars: int | None = 8192,
     provide_explanation: bool = False,
 ):
     """
@@ -84,8 +84,8 @@ def evaluate_completions(
     :param method_B: another method to evaluate against `method_A`
     :param num_annotations: if specified will do at most `num_annotations` annotations
     :param use_tqdm:
-    :param max_len: if specified, truncates the length of completion, useful to save cost and avoid exceeding context
-    limit
+    :param truncate_input_chars: if specified, truncates the length of completion, useful to save cost and avoid
+    exceeding context limit
     :return:
     """
     local_path_tables = data_root / "tables"
@@ -144,7 +144,7 @@ def evaluate_completions(
         completions_A=completions_A.loc[instructions.index].tolist(),
         completions_B=completions_B.loc[instructions.index].tolist(),
         use_tqdm=use_tqdm,
-        max_len=max_len,
+        truncate_input_chars=truncate_input_chars,
         provide_explanation=provide_explanation,
     )
 
@@ -192,7 +192,7 @@ def annotate_battles(
     completions_B: list[str],
     system_prompt: str | None = None,
     user_prompt_template: str = None,
-    max_len: int | None = 8192,
+    truncate_input_chars: int | None = 8192,
     use_tqdm: bool = False,
     provide_explanation: bool = False,
 ) -> list[JudgeAnnotation]:
@@ -220,8 +220,7 @@ def annotate_battles(
     :param completions_B:
     :param system_prompt:
     :param user_prompt_template:
-    :param num_annotations:
-    :param max_len:
+    :param truncate_input_chars: Max characters to truncate completions before sending to judge.
     :param use_tqdm:
     :return:
     """
@@ -253,8 +252,8 @@ def annotate_battles(
         [
             {
                 "user_prompt": user_prompt,
-                "completion_A": truncate(completion_A, max_len=max_len),
-                "completion_B": truncate(completion_B, max_len=max_len),
+                "completion_A": truncate(completion_A, max_len=truncate_input_chars),
+                "completion_B": truncate(completion_B, max_len=truncate_input_chars),
             }
             for user_prompt, completion_A, completion_B in zip(
                 instructions, completions_A, completions_B

@@ -33,8 +33,9 @@ class CliArgs:
     swap_mode: str = "fixed"
     ignore_cache: bool = False
     use_tqdm: bool = False
-    max_len: int = 8192
-    max_tokens: int = 32768
+    truncate_all_input_chars: int = 8192
+    max_out_tokens_models: int = 32768
+    max_out_tokens_judge: int = 32768
 
     result_folder: str = "results"
 
@@ -109,20 +110,26 @@ class CliArgs:
             " `[result_folder]/[evaluation_name]`.",
         )
         parser.add_argument(
-            "--max_len",
+            "--truncate_all_input_chars",
             type=int,
             required=False,
             default=8192,
-            help="Maximum character length for truncating input text (instructions, completions) "
-            "before sending to the model. Useful to avoid exceeding context limits. Defaults to 8192.",
+            help="Max characters to truncate all input text (instructions before models A/B, "
+            "completions before judge).",
         )
         parser.add_argument(
-            "--max_tokens",
+            "--max_out_tokens_models",
             type=int,
             required=False,
             default=32768,
-            help="Maximum number of tokens all models (A, B, and judge) can generate in their responses. "
-            "Defaults to 32768.",
+            help="Max tokens models A/B can generate in their responses.",
+        )
+        parser.add_argument(
+            "--max_out_tokens_judge",
+            type=int,
+            required=False,
+            default=32768,
+            help="Max tokens the judge can generate (reasoning + scores).",
         )
         args = parser.parse_args()
 
@@ -136,8 +143,9 @@ class CliArgs:
             swap_mode=args.swap_mode,
             ignore_cache=args.ignore_cache,
             use_tqdm=args.use_tqdm,
-            max_len=args.max_len,
-            max_tokens=args.max_tokens,
+            truncate_all_input_chars=args.truncate_all_input_chars,
+            max_out_tokens_models=args.max_out_tokens_models,
+            max_out_tokens_judge=args.max_out_tokens_judge,
             result_folder=args.result_folder,
         )
 
@@ -210,9 +218,9 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, max_len=args.max_len, max_tokens=args.max_tokens)
+        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
         if is_fluency_task
-        else partial(generate_instructions, max_len=args.max_len, max_tokens=args.max_tokens)
+        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
     )
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
@@ -245,7 +253,7 @@ def main(args: CliArgs):
 
     judge_chat_model = make_model(
         model=args.judge_model,
-        max_tokens=args.max_tokens,
+        max_tokens=args.max_out_tokens_judge,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
@@ -264,7 +272,7 @@ def main(args: CliArgs):
         completions_B=completions_B.head(n_instructions).tolist(),
         provide_explanation=args.provide_explanation,
         system_prompt=system_prompt,
-        max_len=args.max_len,
+        truncate_input_chars=args.truncate_all_input_chars,
         use_tqdm=args.use_tqdm,
     )
 
@@ -280,7 +288,7 @@ def main(args: CliArgs):
             completions_B=completions_A.head(n_instructions).tolist(),
             provide_explanation=args.provide_explanation,
             system_prompt=system_prompt,
-            max_len=args.max_len,
+            truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
 
