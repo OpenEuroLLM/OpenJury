@@ -290,5 +290,54 @@ def cache_function_dataframe(
             return pd.read_csv(cache_file)
 
 
+def compute_cohen_kappa(y1: list[str], y2: list[str]) -> float:
+    """
+    Compute Cohen's kappa coefficient for inter-rater agreement.
+
+    Args:
+        y1: List of labels from first rater
+        y2: List of labels from second rater
+
+    Returns:
+        Cohen's kappa coefficient (float between -1 and 1)
+    """
+    if len(y1) != len(y2):
+        raise ValueError("Both lists must have the same length")
+
+    if len(y1) == 0:
+        raise ValueError("Lists cannot be empty")
+
+    # Get all unique categories
+    categories = sorted(set(y1) | set(y2))
+    n = len(y1)
+
+    # Build confusion matrix
+    matrix = {}
+    for cat1 in categories:
+        matrix[cat1] = {cat2: 0 for cat2 in categories}
+
+    for label1, label2 in zip(y1, y2):
+        matrix[label1][label2] += 1
+
+    # Compute observed agreement (p_o)
+    observed_agreement = sum(matrix[cat][cat] for cat in categories) / n
+
+    # Compute expected agreement (p_e)
+    expected_agreement = 0
+    for cat in categories:
+        # Marginal probabilities
+        p1 = sum(matrix[cat][c] for c in categories) / n  # rater 1
+        p2 = sum(matrix[c][cat] for c in categories) / n  # rater 2
+        expected_agreement += p1 * p2
+
+    # Compute Cohen's kappa
+    if expected_agreement == 1:
+        return 1.0 if observed_agreement == 1 else 0.0
+
+    kappa = (observed_agreement - expected_agreement) / (1 - expected_agreement)
+
+    return kappa
+
+
 if __name__ == "__main__":
     download_all()
