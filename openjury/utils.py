@@ -64,6 +64,9 @@ def do_inference(chat_model, inputs, use_tqdm: bool = False):
                         if attempt == max_retries - 1 or not is_rate_limit:
                             raise
                         delay = base_delay * (2**attempt)
+                        print(
+                            f"Retry because of a server error, {attempt + 1}/{max_retries}: {e}. Waiting {delay}s..."
+                        )
                         await asyncio.sleep(delay)
 
             # asyncio.gather preserves order (unlike as_completed)
@@ -77,6 +80,7 @@ def do_inference(chat_model, inputs, use_tqdm: bool = False):
                 )
             )
     else:
+
         def batch_with_retry(batch_inputs, max_retries=5, base_delay=1.0):
             for attempt in range(max_retries):
                 num_chunks = 4**attempt
@@ -101,6 +105,10 @@ def do_inference(chat_model, inputs, use_tqdm: bool = False):
                     if attempt == max_retries - 1 or not is_server_error:
                         raise
                     delay = base_delay * (2**attempt)
+                    next_chunks = 4 ** (attempt + 1)
+                    print(
+                        f"Retry because of a server error, {attempt + 1}/{max_retries}: {e}. Waiting {delay}s, then splitting into {next_chunks} chunks..."
+                    )
                     time.sleep(delay)
 
         res = batch_with_retry(inputs)
