@@ -53,7 +53,6 @@ def generate_instructions(
             "instruction_index": instructions.index.tolist(),
         },
     )
-    print(completions[0])
     return df_outputs
 
 
@@ -66,7 +65,10 @@ def generate_base(
 ) -> pd.DataFrame:
     model = make_model(model, max_tokens=max_tokens)
 
-    inputs = [truncate(instruction, max_len=truncate_input_chars) for instruction in instructions]
+    inputs = [
+        truncate(instruction, max_len=truncate_input_chars)
+        for instruction in instructions
+    ]
 
     completions = model.batch(
         inputs=inputs,
