@@ -42,7 +42,9 @@ def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
         return pd.read_parquet(filename, **pandas_kwargs)
 
 
-def do_inference(chat_model, inputs, use_tqdm: bool = True):
+def do_inference(chat_model, inputs, use_tqdm: bool = False):
+    # Retries on rate-limit/server errors with exponential backoff.
+    # Async path retries individual calls; batch path splits into 4^attempt chunks on failure.
     invoke_kwargs = {
         # "stop": ["```"],
         # "max_tokens": 100,
@@ -51,10 +53,18 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
         # perform inference asynchronously to be able to update tqdm, chat_model.batch does not work as it blocks until
         # all requests are received
         async def process_with_real_progress(chat_model, inputs, pbar):
-            async def process_single(input_item):
-                result = await chat_model.ainvoke(input_item, **invoke_kwargs)
-                pbar.update(1)
-                return result
+            async def process_single(input_item, max_retries=5, base_delay=1.0):
+                for attempt in range(max_retries):
+                    try:
+                        result = await chat_model.ainvoke(input_item, **invoke_kwargs)
+                        pbar.update(1)
+                        return result
+                    except Exception as e:
+                        is_rate_limit = "429" in str(e) or "rate" in str(e).lower()
+                        if attempt == max_retries - 1 or not is_rate_limit:
+                            raise
+                        delay = base_delay * (2**attempt)
+                        await asyncio.sleep(delay)
 
             # asyncio.gather preserves order (unlike as_completed)
             results = await asyncio.gather(*[process_single(inp) for inp in inputs])
@@ -62,10 +72,38 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
 
         with tqdm(total=len(inputs)) as pbar:
             res = asyncio.run(
-                process_with_real_progress(chat_model=chat_model, inputs=inputs, pbar=pbar)
+                process_with_real_progress(
+                    chat_model=chat_model, inputs=inputs, pbar=pbar
+                )
             )
     else:
-        res = chat_model.batch(inputs=inputs, **invoke_kwargs)
+        def batch_with_retry(batch_inputs, max_retries=5, base_delay=1.0):
+            for attempt in range(max_retries):
+                num_chunks = 4**attempt
+                chunk_size = max(1, len(batch_inputs) // num_chunks)
+                chunks = [
+                    batch_inputs[i : i + chunk_size]
+                    for i in range(0, len(batch_inputs), chunk_size)
+                ]
+                try:
+                    results = []
+                    for chunk in chunks:
+                        results.extend(chat_model.batch(inputs=chunk, **invoke_kwargs))
+                    return results
+                except Exception as e:
+                    is_server_error = (
+                        "429" in str(e)
+                        or "500" in str(e)
+                        or "502" in str(e)
+                        or "503" in str(e)
+                        or "rate" in str(e).lower()
+                    )
+                    if attempt == max_retries - 1 or not is_server_error:
+                        raise
+                    delay = base_delay * (2**attempt)
+                    time.sleep(delay)
+
+        res = batch_with_retry(inputs)
 
     # Not sure why the API of Langchain returns sometime a string and sometimes an AIMessage object
     # is it because of using Chat and barebones models?
@@ -122,13 +160,21 @@ class ChatVLLM:
                 for msg in lc_messages
             ]
         # Handle list of tuples like [("system", "..."), ("user", "...")]
-        elif isinstance(input_item, list) and input_item and isinstance(input_item[0], tuple):
+        elif (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], tuple)
+        ):
             return [
                 {"role": role if role != "human" else "user", "content": content}
                 for role, content in input_item
             ]
         # Handle already formatted messages
-        elif isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+        elif (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], dict)
+        ):
             return input_item
         # Handle plain string (wrap as user message)
         elif isinstance(input_item, str):
@@ -156,7 +202,9 @@ class ChatVLLM:
         import asyncio
 
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self.invoke(input_item, **invoke_kwargs))
+        return await loop.run_in_executor(
+            None, lambda: self.invoke(input_item, **invoke_kwargs)
+        )
 
 
 def make_model(model: str, max_tokens: int | None = 8192):
