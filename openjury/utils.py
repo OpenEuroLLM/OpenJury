@@ -50,26 +50,20 @@ def do_inference(chat_model, inputs, use_tqdm: bool = True):
     if use_tqdm:
         # perform inference asynchronously to be able to update tqdm, chat_model.batch does not work as it blocks until
         # all requests are received
-        async def process_with_real_progress(chat_model, inputs):
+        async def process_with_real_progress(chat_model, inputs, pbar):
             async def process_single(input_item):
-                return await chat_model.ainvoke(input_item, **invoke_kwargs)
+                result = await chat_model.ainvoke(input_item, **invoke_kwargs)
+                pbar.update(1)
+                return result
 
-            # Create all tasks
-            tasks = [asyncio.create_task(process_single(inp)) for inp in inputs]
-            results = []
-
-            # Track progress as tasks complete
-            with tqdm(total=len(inputs)) as pbar:
-                for task in asyncio.as_completed(tasks):
-                    result = await task
-                    results.append(result)
-                    pbar.update(1)
-
+            # asyncio.gather preserves order (unlike as_completed)
+            results = await asyncio.gather(*[process_single(inp) for inp in inputs])
             return results
 
-        res = asyncio.run(
-            process_with_real_progress(chat_model=chat_model, inputs=inputs)
-        )
+        with tqdm(total=len(inputs)) as pbar:
+            res = asyncio.run(
+                process_with_real_progress(chat_model=chat_model, inputs=inputs, pbar=pbar)
+            )
     else:
         res = chat_model.batch(inputs=inputs, **invoke_kwargs)
 
