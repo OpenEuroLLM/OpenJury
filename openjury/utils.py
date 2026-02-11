@@ -248,7 +248,10 @@ def make_model(model: str, max_tokens: int | None = 8192):
             LlamaCpp,
             ChatOpenAI,
         ]
-        model_kwargs["model"] = model_name
+        if model_provider == "LlamaCpp":
+            model_kwargs["model_path"] = model_name
+        else:
+            model_kwargs["model"] = model_name
 
         try:
             from langchain_together.llms import Together
