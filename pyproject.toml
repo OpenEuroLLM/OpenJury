@@ -34,4 +34,5 @@ exclude = ["slurmpilot_scripts*"]
 
 [project.optional-dependencies]
 vllm = ["vllm==0.10.2"]
+llamacpp = ["llama-cpp-python>=0.3.0"]
 dev = ["black>=25.1.0", "pytest>=8.4.2"]

@@ -35,7 +35,8 @@ or send a PR, we will be happy to update the information.
 git clone https://github.com/OpenEuroLLM/OpenJury
 cd OpenJury
 uv sync 
-uv sync --extra vllm   # Optional: install vLLM support
+uv sync --extra vllm      # Optional: install vLLM support
+uv sync --extra llamacpp   # Optional: install LlamaCpp support
 ```
 
 ### Basic Evaluation
@@ -96,6 +97,48 @@ python openjury/generate_and_evaluate.py \
   --model_B VLLM/Qwen/Qwen2.5-1.5B-Instruct \
   --judge_model VLLM/Qwen/Qwen2.5-32B-Instruct-GPTQ-Int8 \
   --n_instructions 10 
+```
+
+### Running locally with LlamaCpp
+
+LlamaCpp lets you run GGUF models locally on CPU, which is useful for testing your setup without needing a GPU or API keys.
+
+**Install the LlamaCpp extra:**
+
+```bash
+uv sync --extra llamacpp
+```
+
+**Download GGUF models** using `huggingface-cli` (included via `huggingface-hub`):
+
+```bash
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF qwen2.5-0.5b-instruct-q8_0.gguf --local-dir ./models
+huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q8_0.gguf --local-dir ./models
+```
+
+The `LlamaCpp` provider expects a **file path** to a `.gguf` model after the `LlamaCpp/` prefix.
+For absolute paths, this results in a double slash (e.g., `LlamaCpp//home/user/models/model.gguf`).
+
+**Mixed example** — local LlamaCpp model with a remote judge:
+
+```bash
+uv run python openjury/generate_and_evaluate.py \
+  --dataset alpaca-eval \
+  --model_A LlamaCpp/./models/qwen2.5-0.5b-instruct-q8_0.gguf \
+  --model_B OpenRouter/qwen/qwen-2.5-7b-instruct \
+  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
+  --n_instructions 10 --max_out_tokens_models 16384
+```
+
+**Fully local example** — no API keys required (useful for verifying your setup):
+
+```bash
+uv run python openjury/generate_and_evaluate.py \
+  --dataset alpaca-eval \
+  --model_A LlamaCpp/./models/qwen2.5-0.5b-instruct-q8_0.gguf \
+  --model_B LlamaCpp/./models/qwen2.5-1.5b-instruct-q8_0.gguf \
+  --judge_model LlamaCpp/./models/qwen2.5-1.5b-instruct-q8_0.gguf \
+  --n_instructions 5 --max_out_tokens_models 16384
 ```
 
 **Note:** Ensure you have the required LangChain dependencies installed for your chosen provider.

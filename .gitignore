@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Evaluation data and results
+models/
+openjury-eval-data/
+results/
