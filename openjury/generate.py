@@ -19,10 +19,15 @@ def generate_instructions(
     model: str,
     truncate_input_chars: int | None = 8192,
     max_tokens: int | None = 32768,
+    max_model_len: int | None = None,
     use_tqdm: bool = True,
     system_prompt: str | None = None,
 ) -> pd.DataFrame:
-    chat_model = make_model(model, max_tokens=max_tokens)
+    chat_model = make_model(
+        model,
+        max_tokens=max_tokens,
+        max_model_len=max_model_len,
+    )
 
     # TODO improve prompt to generate instructions
     if system_prompt is None:
@@ -61,9 +66,14 @@ def generate_base(
     model: str,
     truncate_input_chars: int | None = 8192,
     max_tokens: int | None = 32768,
+    max_model_len: int | None = None,
     use_tqdm: bool = False,
 ) -> pd.DataFrame:
-    model = make_model(model, max_tokens=max_tokens)
+    model = make_model(
+        model,
+        max_tokens=max_tokens,
+        max_model_len=max_model_len,
+    )
 
     inputs = [
         truncate(instruction, max_len=truncate_input_chars)

@@ -26,7 +26,7 @@ def test_generate_and_evaluate_context_completion(dataset: str):
 
 def test_generate_and_evaluate_correct_order_bias():
     """Test the correction for model order bias.
-    
+
     In this test, a judge that is totally biased towards model B should be corrected to be neutral.
     Since the judge favors model B regardless of the order and the completions, the average
     preference should be 0.5.

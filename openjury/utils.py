@@ -13,7 +13,7 @@ from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
 
 data_root = Path(
-    os.environ.get("OPENJURY_DATA", Path("~/openjury-eval-data/").expanduser())
+    os.environ.get("OPENJURY_EVAL_DATA", Path("~/openjury-eval-data/").expanduser())
 ).expanduser()
 
 
@@ -143,11 +143,26 @@ class ChatVLLM:
     correctly formats prompts with <|im_start|>, <|im_end|>, <think> tags, etc.
     """
 
-    def __init__(self, model: str, max_tokens: int = 8192, **vllm_kwargs):
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int = 8192,
+        max_model_len: int | None = None,
+        **vllm_kwargs,
+    ):
         from vllm import LLM, SamplingParams
 
         self.model_path = model
         self.max_tokens = max_tokens
+
+        if max_model_len is not None:
+            assert max_tokens <= max_model_len, (
+                f"max_tokens ({max_tokens}) must be <= max_model_len ({max_model_len}). "
+                f"Either increase --max_model_len or decrease --max_out_tokens_models / "
+                f"--max_out_tokens_judge."
+            )
+            vllm_kwargs["max_model_len"] = max_model_len
+
         self.llm = LLM(model=model, trust_remote_code=True, **vllm_kwargs)
         self.sampling_params = SamplingParams(
             max_tokens=max_tokens,
@@ -215,7 +230,9 @@ class ChatVLLM:
         )
 
 
-def make_model(model: str, max_tokens: int | None = 8192):
+def make_model(
+    model: str, max_tokens: int | None = 8192, max_model_len: int | None = None
+):
     model_provider = model.split("/")[0]
 
     if model_provider == "Dummy":
@@ -229,6 +246,7 @@ def make_model(model: str, max_tokens: int | None = 8192):
         return ChatVLLM(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
+            max_model_len=max_model_len,
         )
 
     model_kwargs = {}

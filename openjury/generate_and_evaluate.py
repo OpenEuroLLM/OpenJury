@@ -36,6 +36,7 @@ class CliArgs:
     truncate_all_input_chars: int = 8192
     max_out_tokens_models: int = 32768
     max_out_tokens_judge: int = 32768
+    max_model_len: int | None = None
 
     result_folder: str = "results"
 
@@ -131,6 +132,16 @@ class CliArgs:
             default=32768,
             help="Max tokens the judge can generate (reasoning + scores).",
         )
+        parser.add_argument(
+            "--max_model_len",
+            type=int,
+            required=False,
+            default=None,
+            help=(
+                "Optional max context length for VLLM models. If omitted, VLLM uses "
+                "its default model max length. This is useful on smaller GPUs to avoid OOM."
+            ),
+        )
         args = parser.parse_args()
 
         return cls(
@@ -146,6 +157,7 @@ class CliArgs:
             truncate_all_input_chars=args.truncate_all_input_chars,
             max_out_tokens_models=args.max_out_tokens_models,
             max_out_tokens_judge=args.max_out_tokens_judge,
+            max_model_len=args.max_model_len,
             result_folder=args.result_folder,
         )
 
@@ -218,9 +230,19 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
+        partial(
+            generate_base,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+        )
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
+        else partial(
+            generate_instructions,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+        )
     )
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
@@ -254,6 +276,7 @@ def main(args: CliArgs):
     judge_chat_model = make_model(
         model=args.judge_model,
         max_tokens=args.max_out_tokens_judge,
+        max_model_len=args.max_model_len,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
