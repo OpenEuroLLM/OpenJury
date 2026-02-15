@@ -17,8 +17,45 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
-from openjury.utils import data_root
+from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
+
+
+def try_load_dataset_completions(
+    dataset: str, model: str, n_instructions: int | None
+) -> pd.DataFrame | None:
+    """Try loading pre-existing completions from the dataset.
+
+    Some datasets (e.g. alpaca-eval) ship with completions for well-known
+    models such as ``gpt4_1106_preview``.  When ``model`` matches a column in
+    ``model_outputs/{dataset}.csv.zip``, those completions are returned
+    directly so that no model instantiation / generation is needed.
+
+    Returns a DataFrame with columns ``completion`` and ``instruction_index``,
+    or ``None`` when no pre-existing completions are found.
+    """
+    local_path_tables = data_root / "tables"
+    download_hf(name=dataset, local_path=local_path_tables)
+    output_path = local_path_tables / "model_outputs" / f"{dataset}.csv.zip"
+    if not output_path.exists():
+        return None
+    df_outputs = read_df(output_path)
+    df_outputs.loc[:, "output"] = df_outputs.loc[:, "output"].fillna("")
+    df_outputs = df_outputs.pivot_table(
+        index="instruction_index", columns="model", values="output", aggfunc="last"
+    ).sort_index()
+    if model not in df_outputs.columns:
+        return None
+    print(f"Found pre-existing completions for '{model}' in {dataset} dataset.")
+    completions = df_outputs.loc[:, model]
+    if n_instructions is not None:
+        completions = completions.head(n_instructions)
+    return pd.DataFrame(
+        {
+            "completion": completions.values,
+            "instruction_index": completions.index.tolist(),
+        }
+    )
 
 
 @dataclass
@@ -244,27 +281,43 @@ def main(args: CliArgs):
             max_model_len=args.max_model_len,
         )
     )
-    completions_A = cache_function_dataframe(
-        lambda: gen_fun(
-            instructions=instructions,
-            model=args.model_A,
-            use_tqdm=args.use_tqdm,
-        ),
-        ignore_cache=ignore_cache,
-        cache_name=f"{args.dataset}_{args.model_A}_{args.n_instructions}",
-    ).set_index("instruction_index")
-    completions_A = completions_A.loc[:, "completion"]
+    dataset_completions_A = try_load_dataset_completions(
+        args.dataset, args.model_A, n_instructions
+    )
+    if dataset_completions_A is not None:
+        completions_A = dataset_completions_A.set_index("instruction_index").loc[
+            :, "completion"
+        ]
+    else:
+        completions_A = cache_function_dataframe(
+            lambda: gen_fun(
+                instructions=instructions,
+                model=args.model_A,
+                use_tqdm=args.use_tqdm,
+            ),
+            ignore_cache=ignore_cache,
+            cache_name=f"{args.dataset}_{args.model_A}_{args.n_instructions}",
+        ).set_index("instruction_index")
+        completions_A = completions_A.loc[:, "completion"]
 
-    completions_B = cache_function_dataframe(
-        lambda: gen_fun(
-            instructions=instructions,
-            model=args.model_B,
-            use_tqdm=args.use_tqdm,
-        ),
-        ignore_cache=ignore_cache,
-        cache_name=f"{args.dataset}_{args.model_B}_{args.n_instructions}",
-    ).set_index("instruction_index")
-    completions_B = completions_B.loc[:, "completion"]
+    dataset_completions_B = try_load_dataset_completions(
+        args.dataset, args.model_B, n_instructions
+    )
+    if dataset_completions_B is not None:
+        completions_B = dataset_completions_B.set_index("instruction_index").loc[
+            :, "completion"
+        ]
+    else:
+        completions_B = cache_function_dataframe(
+            lambda: gen_fun(
+                instructions=instructions,
+                model=args.model_B,
+                use_tqdm=args.use_tqdm,
+            ),
+            ignore_cache=ignore_cache,
+            cache_name=f"{args.dataset}_{args.model_B}_{args.n_instructions}",
+        ).set_index("instruction_index")
+        completions_B = completions_B.loc[:, "completion"]
     print(f"\nFirst instruction/context: {instructions.values[0]}")
 
     print(f"\nFirst completion of {args.model_A}")
