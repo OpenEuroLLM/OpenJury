@@ -101,7 +101,7 @@ python openjury/generate_and_evaluate.py \
 
 ### Running locally with LlamaCpp
 
-LlamaCpp lets you run GGUF models locally on CPU, which is useful for testing your setup without needing a GPU or API keys.
+LlamaCpp allows you to run GGUF models locally with high efficiency across various hardware, including CPUs, Apple Silicon (Metal), and NVIDIA GPUs. This is ideal for testing your setup without relying on external API keys or high-end server GPUs.
 
 **Install the LlamaCpp extra:**
 
