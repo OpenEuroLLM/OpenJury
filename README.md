@@ -39,29 +39,6 @@ uv sync --extra vllm      # Optional: install vLLM support
 uv sync --extra llamacpp   # Optional: install LlamaCpp support
 ```
 
-### Automatic Environment (direnv)
-
-We use `direnv` to automatically manage the virtual environment and environment variables.
-
-1. **Install direnv:**
-```bash
-curl -sfL https://direnv.net/install.sh | bash
-```
-
-2. **Setup Hook:**
-```bash
-echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc # or ~/.bashrc depending on which shell you use
-```
-
-3. **Configure:** Create a `.envrc` file in the project root:
-```bash
-dotenv_if_exists
-```
-
-4. **Allow:** Run `direnv allow` to authorize the setup.
-
-5. **Env variables** Add env variables like `OPEN_JURY_EVAL_DATA` to `.env` file.
-
 ### Basic Evaluation
 
 Compare two models head-to-head:
