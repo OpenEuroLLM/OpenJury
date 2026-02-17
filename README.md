@@ -172,8 +172,8 @@ python -c "from openjury.utils import download_all; download_all()"  # Download 
 ```
 
 Datasets are stored in:
-- `$OPENJURY_EVAL_DATA` (if set)
-- `~/openjury-eval-data/` (default)
+- `$OPENJURY_DATA` (if set)
+- `~/openjury-data/` (default)
 
 ## 🤝 Contributing
 
