@@ -152,22 +152,28 @@ class CliArgs:
             type=int,
             required=False,
             default=8192,
-            help="Max characters to truncate all input text (instructions before models A/B, "
-            "completions before judge).",
+            help="Character-level truncation applied before tokenization: truncates each instruction "
+            "before model A/B generation and truncates each completion before judge evaluation.",   
         )
         parser.add_argument(
             "--max_out_tokens_models",
             type=int,
             required=False,
             default=32768,
-            help="Max tokens models A/B can generate in their responses.",
+            help=(
+                "Generation token budget for each model A/B response. For VLLM, keep this <= "
+                "--max_model_len (if provided)."
+            ),
         )
         parser.add_argument(
             "--max_out_tokens_judge",
             type=int,
             required=False,
             default=32768,
-            help="Max tokens the judge can generate (reasoning + scores).",
+            help=(
+                "Generation token budget for the judge response (reasoning + scores). For "
+                "VLLM, keep this <= --max_model_len (if provided)."
+            ),
         )
         parser.add_argument(
             "--max_model_len",
@@ -175,8 +181,9 @@ class CliArgs:
             required=False,
             default=None,
             help=(
-                "Optional max context length for VLLM models. If omitted, VLLM uses "
-                "its default model max length. This is useful on smaller GPUs to avoid OOM."
+                "Optional total context window for VLLM models (prompt + generation). This is "
+                "independent from --max_out_tokens_models/--max_out_tokens_judge, which only cap "
+                "generated tokens. This is useful on smaller GPUs to avoid OOM."
             ),
         )
         args = parser.parse_args()
@@ -267,27 +274,15 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(
-            generate_base,
-            truncate_input_chars=args.truncate_all_input_chars,
-            max_tokens=args.max_out_tokens_models,
-            max_model_len=args.max_model_len,
-        )
+        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len)
         if is_fluency_task
-        else partial(
-            generate_instructions,
-            truncate_input_chars=args.truncate_all_input_chars,
-            max_tokens=args.max_out_tokens_models,
-            max_model_len=args.max_model_len,
-        )
+        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len)
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
     )
     if dataset_completions_A is not None:
-        completions_A = dataset_completions_A.set_index("instruction_index").loc[
-            :, "completion"
-        ]
+        completions_A = dataset_completions_A.set_index("instruction_index").loc[:, "completion"]
     else:
         completions_A = cache_function_dataframe(
             lambda: gen_fun(
@@ -304,9 +299,7 @@ def main(args: CliArgs):
         args.dataset, args.model_B, n_instructions
     )
     if dataset_completions_B is not None:
-        completions_B = dataset_completions_B.set_index("instruction_index").loc[
-            :, "completion"
-        ]
+        completions_B = dataset_completions_B.set_index("instruction_index").loc[:, "completion"]
     else:
         completions_B = cache_function_dataframe(
             lambda: gen_fun(

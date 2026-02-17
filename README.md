@@ -74,6 +74,14 @@ It will then display the results of the battles:
 ============================================================
 ```
 
+### Length and Token Parameters
+
+The evaluation scripts expose four different length controls with different roles:
+- `--truncate_all_input_chars`: character-level truncation applied to prompts before model generation and before judge evaluation.
+- `--max_out_tokens_models`: generation token budget for each answer from `model_A` and `model_B`.
+- `--max_out_tokens_judge`: generation token budget for the judge completion (reasoning + score output).
+- `--max_model_len`: optional vLLM context-window limit (prompt + generated tokens), applied to vLLM models; this should be greater than or equal to the two `max_out_tokens_*` values.
+
 ## 🎨 Model Specification
 
 Models are specified using the format: `{LangChain Backend}/{Model Path}`
