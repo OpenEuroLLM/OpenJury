@@ -36,6 +36,7 @@ class CliArgs:
     truncate_all_input_chars: int = 8192
     max_out_tokens_models: int = 32768
     max_out_tokens_judge: int = 32768
+    chat_template: str | None = None
 
     result_folder: str = "results"
 
@@ -131,6 +132,14 @@ class CliArgs:
             default=32768,
             help="Max tokens the judge can generate (reasoning + scores).",
         )
+        parser.add_argument(
+            "--chat_template",
+            type=str,
+            required=False,
+            default=None,
+            help="Jinja2 chat template string to use instead of the model's tokenizer template. "
+            "If not provided, ChatML is used as fallback for models without a chat template.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -146,6 +155,7 @@ class CliArgs:
             truncate_all_input_chars=args.truncate_all_input_chars,
             max_out_tokens_models=args.max_out_tokens_models,
             max_out_tokens_judge=args.max_out_tokens_judge,
+            chat_template=args.chat_template,
             result_folder=args.result_folder,
         )
 
@@ -218,9 +228,9 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
+        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template)
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models)
+        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template)
     )
     completions_A = cache_function_dataframe(
         lambda: gen_fun(
@@ -254,6 +264,7 @@ def main(args: CliArgs):
     judge_chat_model = make_model(
         model=args.judge_model,
         max_tokens=args.max_out_tokens_judge,
+        chat_template=args.chat_template,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
