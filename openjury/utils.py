@@ -151,19 +151,33 @@ class ChatVLLM:
           default chat template.
     """
 
-    def __init__(self, model: str, max_tokens: int = 8192, max_model_len: int | None = None, chat_template: str | None = None, **vllm_kwargs):
+    def __init__(self, model: str, max_tokens: int = 8192, chat_template: str | None = None, **vllm_kwargs):
         from vllm import LLM, SamplingParams
 
         self.model_path = model
         self.max_tokens = max_tokens
 
+        # Cap max_model_len to the model's max_position_embeddings so that
+        # vLLM doesn't reject an overly large context window.
+        max_model_len = vllm_kwargs.get("max_model_len")
         if max_model_len is not None:
-            assert max_tokens <= max_model_len, (
-                f"max_tokens ({max_tokens}) must be <= max_model_len ({max_model_len}). "
-                f"Either increase --max_model_len or decrease --max_out_tokens_models / "
-                f"--max_out_tokens_judge."
-            )
-            vllm_kwargs["max_model_len"] = max_model_len
+            try:
+                from transformers import AutoConfig
+                config = AutoConfig.from_pretrained(model, trust_remote_code=True)
+                model_max_pos = getattr(config, "max_position_embeddings", None)
+                if model_max_pos is not None and max_model_len > model_max_pos:
+                    warnings.warn(
+                        f"Capping max_model_len from {max_model_len} to "
+                        f"{model_max_pos} (max_position_embeddings) for '{model}'."
+                    )
+                    vllm_kwargs["max_model_len"] = model_max_pos
+            except Exception as e:
+                warnings.warn(
+                    "Could not validate max_model_len against "
+                    f"max_position_embeddings for '{model}': {e}. "
+                    "Proceeding without clamping; vLLM may raise if the value is too large.",
+                    RuntimeWarning,
+                )
 
         self.llm = LLM(model=model, trust_remote_code=True, **vllm_kwargs)
         self.sampling_params = SamplingParams(
@@ -276,15 +290,16 @@ class ChatVLLM:
         )
 
 
-def make_model(model: str, max_tokens: int | None = 8192, max_model_len: int | None = None, chat_template: str | None = None):
+def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
     """Instantiate a model wrapper from a provider/model-name string.
 
     Args:
         model: Format ``{Provider}/{model_path}``, e.g.
             ``VLLM/meta-llama/Llama-3.3-70B-Instruct``.
         max_tokens: Maximum tokens the model may generate.
-        chat_template: Optional Jinja2 chat template override.  Only used by
-            the VLLM provider; silently ignored for other providers.
+        **kwargs: Provider-specific options forwarded to the model wrapper.
+            For VLLM these include ``max_model_len``, ``chat_template``, and
+            any other ``vllm.LLM`` constructor arguments.
     """
     model_provider = model.split("/")[0]
 
@@ -296,11 +311,13 @@ def make_model(model: str, max_tokens: int | None = 8192, max_model_len: int | N
 
     # Use our custom ChatVLLM wrapper which properly applies chat templates
     if model_provider == "VLLM":
+        chat_template = kwargs.pop("chat_template", None)
+        vllm_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return ChatVLLM(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
-            max_model_len=max_model_len,
             chat_template=chat_template,
+            **vllm_kwargs,
         )
 
     model_kwargs = {}
