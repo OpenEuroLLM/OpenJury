@@ -74,6 +74,7 @@ class CliArgs:
     max_out_tokens_models: int = 32768
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
+    chat_template: str | None = None
 
     result_folder: str = "results"
 
@@ -186,6 +187,14 @@ class CliArgs:
                 "generated tokens. This is useful on smaller GPUs to avoid OOM."
             ),
         )
+        parser.add_argument(
+            "--chat_template",
+            type=str,
+            required=False,
+            default=None,
+            help="Jinja2 chat template string to use instead of the model's tokenizer template. "
+            "If not provided, ChatML is used as fallback for models without a chat template.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -202,6 +211,7 @@ class CliArgs:
             max_out_tokens_models=args.max_out_tokens_models,
             max_out_tokens_judge=args.max_out_tokens_judge,
             max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
             result_folder=args.result_folder,
         )
 
@@ -274,9 +284,9 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len)
+        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len, chat_template=args.chat_template)
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len)
+        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template, max_model_len=args.max_model_len)
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
@@ -323,6 +333,7 @@ def main(args: CliArgs):
         model=args.judge_model,
         max_tokens=args.max_out_tokens_judge,
         max_model_len=args.max_model_len,
+        chat_template=args.chat_template,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \

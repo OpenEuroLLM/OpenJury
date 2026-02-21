@@ -109,7 +109,7 @@ python openjury/generate_and_evaluate.py \
 
 ### Running locally with LlamaCpp
 
-LlamaCpp lets you run GGUF models locally on CPU, which is useful for testing your setup without needing a GPU or API keys.
+LlamaCpp allows you to run GGUF models locally with high efficiency across various hardware, including CPUs, Apple Silicon (Metal), and NVIDIA GPUs. This is ideal for testing your setup without relying on external API keys or high-end server GPUs.
 
 **Install the LlamaCpp extra:**
 
@@ -151,6 +151,26 @@ uv run python openjury/generate_and_evaluate.py \
 
 **Note:** Ensure you have the required LangChain dependencies installed for your chosen provider.
 If you use remote endpoint, you would have to set your credentials.
+
+### Chat Templates (vLLM)
+
+When using vLLM, OpenJury automatically picks the right inference method based on the model:
+
+- **Instruct/chat models** (e.g. `swiss-ai/Apertus-8B-Instruct-2509`): the tokenizer already defines a chat template, so OpenJury uses `vllm.LLM.chat()` and the template is applied automatically.
+- **Base/pretrained models** (e.g. `swiss-ai/Apertus-8B-2509`): these typically don't ship a chat template. OpenJury detects this and falls back to `vllm.LLM.generate()` (plain text, no chat formatting). A warning is printed when this happens.
+
+If you need to force a specific chat template (for example, a base model that you know works with ChatML), pass it via `--chat_template`:
+
+```bash
+python openjury/generate_and_evaluate.py \
+  --dataset alpaca-eval \
+  --model_A VLLM/swiss-ai/Apertus-8B-2509 \
+  --model_B VLLM/swiss-ai/Apertus-8B-Instruct-2509 \
+  --judge_model VLLM/Qwen/Qwen2.5-32B-Instruct-GPTQ-Int8 \
+  --chat_template '{% for message in messages %}<|im_start|>{{ message["role"] }}\n{{ message["content"] }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}'
+```
+
+This override applies to all vLLM models in the run. For remote providers (OpenAI, Together, OpenRouter), the flag is ignored since they handle templates server-side.
 
 ## 📊 Supported Datasets
 

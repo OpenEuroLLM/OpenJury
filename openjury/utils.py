@@ -1,6 +1,7 @@
 import time
 import asyncio
 import os
+import warnings
 from pathlib import Path
 from typing import Callable
 
@@ -136,20 +137,21 @@ class DummyModel:
 
 
 class ChatVLLM:
-    """VLLM wrapper using the native chat() method for proper chat template handling.
+    """VLLM wrapper that auto-detects whether to use chat() or generate().
 
-    The default LangChain VLLM wrapper uses vllm.LLM.generate() which does NOT apply
-    the model's chat template. This wrapper uses vllm.LLM.chat() instead, which
-    correctly formats prompts with <|im_start|>, <|im_end|>, <think> tags, etc.
+    Chat template handling:
+        - If ``chat_template`` is explicitly provided, always uses ``llm.chat()``
+          with that template (useful for models whose tokenizer lacks a template
+          but you know the correct one).
+        - If the tokenizer defines a chat template, uses ``llm.chat()`` and lets
+          vLLM apply the tokenizer's template automatically.
+        - If no chat template is found (typical for base/pretrained models),
+          falls back to ``llm.generate()`` and emits a warning.  This avoids the
+          ``ValueError`` raised by ``transformers >= v4.44`` which removed the
+          default chat template.
     """
 
-    def __init__(
-        self,
-        model: str,
-        max_tokens: int = 8192,
-        max_model_len: int | None = None,
-        **vllm_kwargs,
-    ):
+    def __init__(self, model: str, max_tokens: int = 8192, max_model_len: int | None = None, chat_template: str | None = None, **vllm_kwargs):
         from vllm import LLM, SamplingParams
 
         self.model_path = model
@@ -169,6 +171,29 @@ class ChatVLLM:
             temperature=0.6,
             top_p=0.95,
         )
+
+        # Resolve chat template:
+        # 1. Explicit override always wins → use chat() with that template
+        # 2. If tokenizer has one, use it → use chat() (pass None to vLLM)
+        # 3. No template found → fall back to generate() for base models
+        if chat_template:
+            self.chat_template = chat_template
+            self._use_generate = False
+            print(f"ChatVLLM: using explicit chat template for '{model}'")
+        else:
+            tokenizer = self.llm.get_tokenizer()
+            if not getattr(tokenizer, "chat_template", None):
+                warnings.warn(
+                    f"Model '{model}' tokenizer does not define a chat template. "
+                    f"Falling back to llm.generate() (no chat formatting). "
+                    f"Override with --chat_template if this model needs one.",
+                )
+                self.chat_template = None
+                self._use_generate = True
+            else:
+                self.chat_template = None  # let vLLM use the tokenizer's own
+                self._use_generate = False
+                print(f"ChatVLLM: using tokenizer's chat template for '{model}'")
 
     def _to_messages(self, input_item) -> list[dict]:
         """Convert LangChain prompt input to OpenAI-style messages."""
@@ -205,14 +230,35 @@ class ChatVLLM:
         else:
             raise ValueError(f"Unsupported input type: {type(input_item)}")
 
+    def _to_raw_text(self, input_item) -> str:
+        """Extract raw text from an input item for use with llm.generate()."""
+        if isinstance(input_item, str):
+            return input_item
+        # ChatPromptValue from LangChain
+        if hasattr(input_item, "to_string"):
+            return input_item.to_string()
+        # List of dicts (messages) - concatenate contents
+        if isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+            return "\n".join(msg["content"] for msg in input_item)
+        raise ValueError(f"Cannot extract raw text from: {type(input_item)}")
+
     def batch(self, inputs: list, **invoke_kwargs) -> list[str]:
-        """Process a batch of inputs using vllm.LLM.chat()."""
-        messages_batch = [self._to_messages(inp) for inp in inputs]
-        outputs = self.llm.chat(
-            messages_batch,
-            self.sampling_params,
-            add_generation_prompt=True,
-        )
+        """Process a batch of inputs using vllm.LLM.chat() or llm.generate().
+
+        Uses ``llm.chat()`` when a chat template is available (instruct models),
+        and ``llm.generate()`` when no template is found (base models).
+        """
+        if self._use_generate:
+            prompts = [self._to_raw_text(inp) for inp in inputs]
+            outputs = self.llm.generate(prompts, self.sampling_params)
+        else:
+            messages_batch = [self._to_messages(inp) for inp in inputs]
+            outputs = self.llm.chat(
+                messages_batch,
+                self.sampling_params,
+                add_generation_prompt=True,
+                chat_template=self.chat_template,
+            )
         return [out.outputs[0].text for out in outputs]
 
     def invoke(self, input_item, **invoke_kwargs) -> str:
@@ -230,9 +276,16 @@ class ChatVLLM:
         )
 
 
-def make_model(
-    model: str, max_tokens: int | None = 8192, max_model_len: int | None = None
-):
+def make_model(model: str, max_tokens: int | None = 8192, max_model_len: int | None = None, chat_template: str | None = None):
+    """Instantiate a model wrapper from a provider/model-name string.
+
+    Args:
+        model: Format ``{Provider}/{model_path}``, e.g.
+            ``VLLM/meta-llama/Llama-3.3-70B-Instruct``.
+        max_tokens: Maximum tokens the model may generate.
+        chat_template: Optional Jinja2 chat template override.  Only used by
+            the VLLM provider; silently ignored for other providers.
+    """
     model_provider = model.split("/")[0]
 
     if model_provider == "Dummy":
@@ -247,6 +300,7 @@ def make_model(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
             max_model_len=max_model_len,
+            chat_template=chat_template,
         )
 
     model_kwargs = {}
