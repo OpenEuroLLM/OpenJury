@@ -47,7 +47,7 @@ Compare two models head-to-head:
 python openjury/generate_and_evaluate.py \
   --dataset alpaca-eval \
   --model_A gpt4_1106_preview \
-  --model_B VLLM/utter-project/EuroLLM-9B-Instruct \
+  --model_B VLLM/utter-project/EuroLLM-9B \
   --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
   --n_instructions 10 
 ```
@@ -63,7 +63,7 @@ It will then display the results of the battles:
 ============================================================
                   🏆 MODEL BATTLE RESULTS 🏆                  
 📊 Dataset: alpaca-eval
-🤖 Competitors: Model A: gpt4_1106_preview vs Model B: VLLM/utter-project/EuroLLM-9B-Instruct
+🤖 Competitors: Model A: gpt4_1106_preview vs Model B: VLLM/utter-project/EuroLLM-9B
 ⚖️ Judge: OpenRouter/deepseek/deepseek-chat-v3.1
 📈 Results Summary:
    Total Battles: 10
@@ -92,7 +92,7 @@ Models are specified using the format: `{LangChain Backend}/{Model Path}`
 Together/meta-llama/Llama-3.3-70B-Instruct-Turbo
 ChatOpenAI/gpt-4o
 LlamaCpp/jwiggerthale_Llama-3.2-3B-Q8_0-GGUF_llama-3.2-3b-q8_0.gguf
-VLLM/utter-project/EuroLLM-9B-Instruct
+VLLM/utter-project/EuroLLM-9B
 OpenRouter/deepseek/deepseek-chat-v3.1
 ```
 
