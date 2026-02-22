@@ -76,7 +76,7 @@ def generate_base(
         inputs=inputs,
         max_tokens=max_tokens,
     )
-    completions = [x.content for x in completions]
+    completions = [x.content if hasattr(x, "content") else x for x in completions]
 
     df_outputs = pd.DataFrame(
         data={
