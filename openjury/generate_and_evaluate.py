@@ -14,7 +14,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate_battles, PairScore
+from openjury.evaluate import (
+    annotate_battles,
+    PairScore,
+    annotate_rubric,
+    RubricScore,
+    RUBRIC_CRITERIA,
+)
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
 from openjury.utils import data_root
@@ -31,6 +37,7 @@ class CliArgs:
     n_instructions: int | None = None
     provide_explanation: bool = False
     swap_mode: str = "fixed"
+    eval_mode: str = "winrate"
     ignore_cache: bool = False
     use_tqdm: bool = False
     truncate_all_input_chars: int = 8192
@@ -45,6 +52,10 @@ class CliArgs:
         assert (
             self.swap_mode in supported_modes
         ), f"Only {supported_modes} modes are supported but got {self.swap_mode}."
+        supported_eval_modes = ["winrate", "rubric"]
+        assert (
+            self.eval_mode in supported_eval_modes
+        ), f"Only {supported_eval_modes} eval modes are supported but got {self.eval_mode}."
 
     @classmethod
     def parse_args(cls):
@@ -91,6 +102,16 @@ class CliArgs:
             help="Model comparison order mode. 'fixed': always use model order A-B. 'both': correct for model order "
             "bias by evaluating each instruction twice, once as A-B and once as B-A, and average. This helps account "
             "for judge position bias. Default is 'fixed'.",
+        )
+        parser.add_argument(
+            "--eval_mode",
+            type=str,
+            choices=["winrate", "rubric"],
+            default="winrate",
+            help="Evaluation mode. 'winrate': pairwise comparison where judge sees both responses and picks a winner. "
+            "'rubric': independent evaluation of each response on 4 criteria (Instruction Following, Naturalness, "
+            "Coherence, Accuracy) using a 1-7 Likert scale. Rubric mode is adapted from the Tiny Aya tech report "
+            "(Appendix B.3). Default is 'winrate'.",
         )
         parser.add_argument(
             "--ignore_cache",
@@ -150,6 +171,7 @@ class CliArgs:
             n_instructions=args.n_instructions,
             provide_explanation=args.provide_explanation,
             swap_mode=args.swap_mode,
+            eval_mode=args.eval_mode,
             ignore_cache=args.ignore_cache,
             use_tqdm=args.use_tqdm,
             truncate_all_input_chars=args.truncate_all_input_chars,
@@ -181,6 +203,35 @@ def print_results(results):
     print(f"   ✅ Wins:   {results['num_wins']}")
     print(f"   ❌ Losses: {results['num_losses']}")
     print(f"   🤝 Ties:   {results['num_ties']}")
+    print("=" * 60 + "\n")
+
+
+def print_rubric_results(results):
+    """Print rubric evaluation results in a formatted table."""
+    print("\n" + "=" * 60)
+    print("RUBRIC EVALUATION RESULTS".center(60))
+    print(f"Dataset: {results['dataset']}")
+    print(f"Judge: {results['judge_model']}")
+    print("-" * 60)
+    print(f"  Model A: {results['model_A']}")
+    print(f"  Model B: {results['model_B']}")
+    print()
+    print(f"  {'Criterion':<25s} {'Model A':>10s} {'Model B':>10s}")
+    print("  " + "-" * 47)
+    for criterion in results["criteria"]:
+        label = criterion.replace("_", " ").title()
+        score_key = f"{criterion}_score"
+        score_a = results["model_A_scores"].get(score_key, 0)
+        score_b = results["model_B_scores"].get(score_key, 0)
+        print(f"  {label:<25s} {score_a:>10.2f} {score_b:>10.2f}")
+    print("  " + "-" * 47)
+    comp_a = results["model_A_scores"].get("composite_score", 0)
+    comp_b = results["model_B_scores"].get("composite_score", 0)
+    print(f"  {'Composite (0-1)':<25s} {comp_a:>10.3f} {comp_b:>10.3f}")
+    n = results["num_instructions"]
+    fail_a = results["model_A_parse_failures"]
+    fail_b = results["model_B_parse_failures"]
+    print(f"\n  Evaluations: {n} | Parse failures: A={fail_a}, B={fail_b}")
     print("=" * 60 + "\n")
 
 
@@ -266,120 +317,242 @@ def main(args: CliArgs):
         max_tokens=args.max_out_tokens_judge,
         chat_template=args.chat_template,
     )
-    if is_fluency_task:
-        system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
-        model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
-        completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
-        over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
-        the ordering or on the length of the answers."""
-    else:
-        # the default system prompt of annotate is to compare instruction tuned models.
 
-        system_prompt = None
-    annotations = annotate_battles(
-        judge_chat_model=judge_chat_model,
-        instructions=instructions.head(n_instructions).tolist(),
-        completions_A=completions_A.head(n_instructions).tolist(),
-        completions_B=completions_B.head(n_instructions).tolist(),
-        provide_explanation=args.provide_explanation,
-        system_prompt=system_prompt,
-        truncate_input_chars=args.truncate_all_input_chars,
-        use_tqdm=args.use_tqdm,
-    )
+    if args.eval_mode == "rubric":
+        # --- Rubric evaluation: independent per-model scoring ---
+        if is_fluency_task:
+            raise ValueError(
+                "Rubric evaluation is not supported for fluency tasks. "
+                "The 4 rubric criteria (Instruction Following, Naturalness, "
+                "Coherence, Accuracy) don't apply to sentence completion."
+            )
+        if args.swap_mode == "both":
+            print(
+                "Note: --swap_mode 'both' is ignored in rubric mode "
+                "(no position bias in independent evaluation)."
+            )
 
-    if args.swap_mode == "both":
-        print("Correction for judge bias towards a certain model position is set.")
-        print(
-            f"Evaluating completions with models reversed with judge {args.judge_model}."
-        )
-        annotations_reversed = annotate_battles(
+        annotations_A = annotate_rubric(
             judge_chat_model=judge_chat_model,
             instructions=instructions.head(n_instructions).tolist(),
-            completions_A=completions_B.head(n_instructions).tolist(),
-            completions_B=completions_A.head(n_instructions).tolist(),
+            completions=completions_A.head(n_instructions).tolist(),
+            model_name=args.model_A,
+            truncate_input_chars=args.truncate_all_input_chars,
+            use_tqdm=args.use_tqdm,
+        )
+        annotations_B = annotate_rubric(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions.head(n_instructions).tolist(),
+            completions=completions_B.head(n_instructions).tolist(),
+            model_name=args.model_B,
+            truncate_input_chars=args.truncate_all_input_chars,
+            use_tqdm=args.use_tqdm,
+        )
+
+        name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
+        name += "-rubric"
+        name = name.replace("/", "_")
+
+        res_folder = Path(args.result_folder) / name
+        res_folder.mkdir(parents=True, exist_ok=True)
+
+        with open(res_folder / f"args-{name}.json", "w") as f:
+            json.dump(asdict(args), f, indent=2)
+
+        # Parse scores and build annotations CSV
+        score_parser = RubricScore()
+        rows = []
+        for annotations, model_label in [
+            (annotations_A, args.model_A),
+            (annotations_B, args.model_B),
+        ]:
+            for ann in annotations:
+                parsed = score_parser.parse_model_raw(ann.judge_completion)
+                row = {
+                    "model": model_label,
+                    "instruction": ann.instruction,
+                    "completion": ann.completion,
+                    "judge_completion": ann.judge_completion,
+                }
+                if parsed:
+                    row.update(parsed)
+                rows.append(row)
+
+        df_annotations = pd.DataFrame(rows)
+        df_annotations["instruction_index"] = (
+            instructions.head(n_instructions).index.tolist() * 2
+        )
+        df_annotations["judge"] = args.judge_model
+        print(f"Saving results to {res_folder}")
+        df_annotations.to_csv(
+            res_folder / f"{name}-annotations.csv", index=False
+        )
+
+        # Aggregate scores per model
+        def aggregate_scores(annotations_list, parser, model_label=""):
+            all_parsed = [
+                parser.parse_model_raw(a.judge_completion) for a in annotations_list
+            ]
+            valid = [p for p in all_parsed if p is not None]
+            n_failed = len(all_parsed) - len(valid)
+            if n_failed > 0:
+                print(f"  Warning: {n_failed}/{len(all_parsed)} rubric parses failed.")
+            # Report any scores that were snapped to valid anchor points
+            n_snapped = sum(1 for p in valid if p.get("_snapped_scores"))
+            if n_snapped > 0:
+                print(
+                    f"  Note: {n_snapped}/{len(valid)} responses from {model_label} "
+                    f"had scores snapped to valid anchors {{1,3,5,7}}."
+                )
+            if not valid:
+                return {}, n_failed
+            agg = {}
+            for key in valid[0]:
+                if key.startswith("_"):
+                    continue
+                if isinstance(valid[0][key], (int, float)):
+                    agg[key] = sum(v[key] for v in valid) / len(valid)
+            return agg, n_failed
+
+        scores_A, n_failed_A = aggregate_scores(annotations_A, score_parser, args.model_A)
+        scores_B, n_failed_B = aggregate_scores(annotations_B, score_parser, args.model_B)
+
+        results = {
+            "eval_mode": "rubric",
+            "dataset": args.dataset,
+            "model_A": args.model_A,
+            "model_B": args.model_B,
+            "judge_model": args.judge_model,
+            "num_instructions": n_instructions,
+            "criteria": RUBRIC_CRITERIA,
+            "model_A_scores": scores_A,
+            "model_B_scores": scores_B,
+            "model_A_parse_failures": n_failed_A,
+            "model_B_parse_failures": n_failed_B,
+            "date": str(datetime.now().isoformat()),
+            "user": os.getenv("USER", ""),
+        }
+
+        print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
+        print_rubric_results(results)
+
+        with open(res_folder / f"results-{name}.json", "w") as f:
+            json.dump(results, f, indent=2)
+
+        return results
+
+    else:
+        # --- Winrate evaluation: pairwise comparison (existing logic) ---
+        if is_fluency_task:
+            system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
+            model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
+            completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
+            over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
+            the ordering or on the length of the answers."""
+        else:
+            system_prompt = None
+        annotations = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions.head(n_instructions).tolist(),
+            completions_A=completions_A.head(n_instructions).tolist(),
+            completions_B=completions_B.head(n_instructions).tolist(),
             provide_explanation=args.provide_explanation,
             system_prompt=system_prompt,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
 
-    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
-    name += f"-{args.swap_mode}"
-    name = name.replace("/", "_")
+        if args.swap_mode == "both":
+            print("Correction for judge bias towards a certain model position is set.")
+            print(
+                f"Evaluating completions with models reversed with judge {args.judge_model}."
+            )
+            annotations_reversed = annotate_battles(
+                judge_chat_model=judge_chat_model,
+                instructions=instructions.head(n_instructions).tolist(),
+                completions_A=completions_B.head(n_instructions).tolist(),
+                completions_B=completions_A.head(n_instructions).tolist(),
+                provide_explanation=args.provide_explanation,
+                system_prompt=system_prompt,
+                truncate_input_chars=args.truncate_all_input_chars,
+                use_tqdm=args.use_tqdm,
+            )
 
-    res_folder = Path(args.result_folder) / name
-    res_folder.mkdir(parents=True, exist_ok=True)
+        name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
+        name += f"-{args.swap_mode}"
+        name = name.replace("/", "_")
 
-    # save argument for results analysis
-    with open(res_folder / f"args-{name}.json", "w") as f:
-        json.dump(asdict(args), f, indent=2)
+        res_folder = Path(args.result_folder) / name
+        res_folder.mkdir(parents=True, exist_ok=True)
 
-    print(f"Saving results to {res_folder}")
-    df = pd.DataFrame(annotations)
-    df["instruction_index"] = instructions.head(n_instructions).index.tolist()
-    df["model_A"] = args.model_A
-    df["model_B"] = args.model_B
-    df["judge"] = args.judge_model
+        with open(res_folder / f"args-{name}.json", "w") as f:
+            json.dump(asdict(args), f, indent=2)
 
-    if args.swap_mode == "both":
-        df_reversed = pd.DataFrame(annotations_reversed)
-        df_reversed["instruction_index"] = instructions.head(
-            n_instructions
-        ).index.tolist()
-        df_reversed["model_A"] = args.model_B
-        df_reversed["model_B"] = args.model_A
-        df_reversed["judge"] = args.judge_model
-        df = pd.concat([df, df_reversed])
+        print(f"Saving results to {res_folder}")
+        df = pd.DataFrame(annotations)
+        df["instruction_index"] = instructions.head(n_instructions).index.tolist()
+        df["model_A"] = args.model_A
+        df["model_B"] = args.model_B
+        df["judge"] = args.judge_model
 
-    df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
+        if args.swap_mode == "both":
+            df_reversed = pd.DataFrame(annotations_reversed)
+            df_reversed["instruction_index"] = instructions.head(
+                n_instructions
+            ).index.tolist()
+            df_reversed["model_A"] = args.model_B
+            df_reversed["model_B"] = args.model_A
+            df_reversed["judge"] = args.judge_model
+            df = pd.concat([df, df_reversed])
 
-    # compute preferences between A and B
-    score_parser = PairScore()
-    prefs = pd.Series(
-        [
-            score_parser.parse_model_raw(annotation.judge_completion)
-            for annotation in annotations
-        ]
-    )
+        df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
-    if args.swap_mode == "both":
-        prefs_reversed = pd.Series(
+        score_parser = PairScore()
+        prefs = pd.Series(
             [
                 score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations_reversed
+                for annotation in annotations
             ]
         )
-        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
-    # compute and report statistics
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
+        if args.swap_mode == "both":
+            prefs_reversed = pd.Series(
+                [
+                    score_parser.parse_model_raw(annotation.judge_completion)
+                    for annotation in annotations_reversed
+                ]
+            )
+            prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
-    results = {
-        "dataset": args.dataset,
-        "model_A": args.model_A,
-        "model_B": args.model_B,
-        "judge_model": args.judge_model,
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": num_battles - (num_losses + num_wins + num_ties),
-        "preferences": prefs.tolist(),
-        "date": str(datetime.now().isoformat()),
-        "user": os.getenv("USER", ""),
-    }
-    print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
-    print_results(results)
+        num_wins = sum(prefs < 0.5)
+        num_losses = sum(prefs > 0.5)
+        num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
+        num_battles = len(prefs)
+        winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
 
-    with open(res_folder / f"results-{name}.json", "w") as f:
-        json.dump(results, f, indent=2)
+        results = {
+            "eval_mode": "winrate",
+            "dataset": args.dataset,
+            "model_A": args.model_A,
+            "model_B": args.model_B,
+            "judge_model": args.judge_model,
+            "num_battles": num_battles,
+            "winrate": winrate,
+            "num_wins": num_wins,
+            "num_losses": num_losses,
+            "num_ties": num_ties,
+            "num_missing": num_battles - (num_losses + num_wins + num_ties),
+            "preferences": prefs.tolist(),
+            "date": str(datetime.now().isoformat()),
+            "user": os.getenv("USER", ""),
+        }
+        print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
+        print_results(results)
 
-    return prefs
+        with open(res_folder / f"results-{name}.json", "w") as f:
+            json.dump(results, f, indent=2)
+
+        return prefs
 
 
 if __name__ == "__main__":

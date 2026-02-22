@@ -1,0 +1,1 @@
+You are a skilled evaluator tasked with judging the quality of a generated answer for a given query.

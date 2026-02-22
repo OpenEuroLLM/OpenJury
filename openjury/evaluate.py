@@ -18,6 +18,86 @@ from openjury.utils import (
 )
 
 
+RUBRIC_CRITERIA = ["instruction_following", "naturalness", "coherence", "accuracy"]
+
+# Valid scores on the Likert scale (anchor points defined in the rubric prompt).
+# Adapted from the Tiny Aya tech report, Appendix B.3 (Aryabumi et al., 2025).
+VALID_RUBRIC_SCORES = [1, 3, 5, 7]
+
+
+class RubricScore:
+    """Parse rubric-based judge output (JSON with 4 criteria, 1/3/5/7 Likert scale).
+
+    Adapted from the Tiny Aya tech report, Appendix B.3
+    (Aryabumi et al., 2025). Scores are snapped to the nearest valid
+    anchor point {1, 3, 5, 7} if the judge outputs an intermediate value.
+
+    Composite score: (mean - 1) / 6, linearly mapping [1, 7] to [0, 1].
+    """
+
+    min_score = 1
+    max_score = 7
+
+    def parse_model_raw(self, judge_completion: str) -> dict | None:
+        """Extract 4 criterion scores + rationales from JSON in judge response.
+
+        Returns dict with keys like 'instruction_following_score',
+        'instruction_following_rationale', etc., plus 'composite_score' (0-1)
+        and 'mean_score' (1-7). Returns None on parse failure.
+        """
+        json_str = self._extract_json(judge_completion)
+        if json_str is None:
+            return None
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            return None
+
+        scores = {}
+        for criterion in RUBRIC_CRITERIA:
+            score_key = f"{criterion}_score"
+            rationale_key = f"{criterion}_rationale"
+            if score_key not in data:
+                return None
+            score = data[score_key]
+            if not isinstance(score, (int, float)):
+                try:
+                    score = float(score)
+                except (ValueError, TypeError):
+                    return None
+            score = float(score)
+            # Snap to nearest valid anchor point {1, 3, 5, 7}
+            snapped = min(VALID_RUBRIC_SCORES, key=lambda v: abs(v - score))
+            if snapped != score:
+                scores.setdefault("_snapped_scores", [])
+                scores["_snapped_scores"].append(
+                    (criterion, score, snapped)
+                )
+            scores[score_key] = snapped
+            scores[rationale_key] = data.get(rationale_key, "")
+
+        mean_score = sum(
+            scores[f"{c}_score"] for c in RUBRIC_CRITERIA
+        ) / len(RUBRIC_CRITERIA)
+        scores["composite_score"] = (mean_score - self.min_score) / (
+            self.max_score - self.min_score
+        )
+        scores["mean_score"] = mean_score
+        return scores
+
+    @staticmethod
+    def _extract_json(text: str) -> str | None:
+        """Extract JSON object from text, handling markdown code blocks."""
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if match:
+            return match.group(1)
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return match.group(0)
+        return None
+
+
 class PairScore:
     def __init__(self):
         super(PairScore).__init__()
@@ -277,6 +357,102 @@ def annotate_battles(
                 instruction=instruction,
                 completion_A=completion_A,
                 completion_B=completion_B,
+            )
+        )
+    return annotations
+
+
+def load_rubric_prompts() -> tuple[str, str]:
+    """Load system and user prompts for rubric evaluation."""
+    with open(Path(__file__).parent / "prompts" / "rubric-system-prompt.txt", "r") as f:
+        system_prompt = str(f.read())
+    with open(Path(__file__).parent / "prompts" / "rubric-prompt.txt", "r") as f:
+        user_prompt_template = str(f.read())
+    return system_prompt, user_prompt_template
+
+
+@dataclass
+class RubricAnnotation:
+    judge_completion: str
+    instruction: str
+    completion: str
+    model: str
+
+
+def annotate_rubric(
+    judge_chat_model,
+    instructions: list[str],
+    completions: list[str],
+    model_name: str,
+    system_prompt: str | None = None,
+    user_prompt_template: str | None = None,
+    truncate_input_chars: int | None = 8192,
+    use_tqdm: bool = False,
+) -> list[RubricAnnotation]:
+    """Evaluate completions from a single model using rubric criteria.
+
+    Unlike annotate_battles(), this evaluates one response at a time
+    on 4 criteria (Instruction Following, Naturalness, Coherence, Accuracy)
+    using a 1-7 Likert scale.
+
+    Adapted from the Tiny Aya tech report, Appendix B.3.
+
+    :param judge_chat_model: LangChain-compatible chat model for the judge.
+    :param instructions: List of instruction strings.
+    :param completions: List of completion strings from a single model.
+    :param model_name: Name of the model being evaluated.
+    :param system_prompt: Override system prompt. Defaults to rubric system prompt.
+    :param user_prompt_template: Override user prompt. Defaults to rubric prompt.
+    :param truncate_input_chars: Max characters to truncate completions.
+    :param use_tqdm: Whether to show progress bar.
+    :return: List of RubricAnnotation objects.
+    """
+    assert len(instructions) == len(completions)
+
+    default_system_prompt, default_user_prompt_template = load_rubric_prompts()
+    if system_prompt is None:
+        system_prompt = default_system_prompt
+    if user_prompt_template is None:
+        user_prompt_template = default_user_prompt_template
+
+    prompt_template = ChatPromptTemplate.from_messages(
+        [("system", system_prompt), ("user", user_prompt_template)]
+    )
+
+    def truncate(s: str, max_len: int | None = None):
+        if not isinstance(s, str):
+            return ""
+        if max_len is not None:
+            return s[:max_len]
+        else:
+            return s
+
+    inputs = prompt_template.batch(
+        [
+            {
+                "user_prompt": user_prompt,
+                "completion": truncate(completion, max_len=truncate_input_chars),
+            }
+            for user_prompt, completion in zip(instructions, completions)
+        ]
+    )
+    print(f"Start rubric evaluation for {model_name} ({len(inputs)} annotations).")
+    judge_completions = do_inference(
+        chat_model=judge_chat_model,
+        inputs=inputs,
+        use_tqdm=use_tqdm,
+    )
+
+    annotations = []
+    for judge_completion, instruction, completion in zip(
+        judge_completions, instructions, completions
+    ):
+        annotations.append(
+            RubricAnnotation(
+                judge_completion=judge_completion,
+                instruction=instruction,
+                completion=completion,
+                model=model_name,
             )
         )
     return annotations
