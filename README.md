@@ -195,6 +195,16 @@ Datasets are stored in:
 - `$OPENJURY_DATA` (if set)
 - `~/openjury-data/` (default)
 
+## 🛠️ Development
+
+To maintain code quality, we use **pre-commit** hooks. Run this once to set them up:
+
+```bash
+uv run pre-commit install
+```
+
+Once installed, hooks will automatically check and format your code on every `git commit`. If a commit is blocked, simply `git add` the changes made by the hooks and commit again.
+
 ## 🤝 Contributing
 
 We welcome contributions! Whether it's bug fixes, new features, or additional benchmark support, feel free to open an issue or submit a pull request.
