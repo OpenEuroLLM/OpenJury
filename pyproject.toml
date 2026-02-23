@@ -2,6 +2,9 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+openjury = "openjury.generate_and_evaluate:cli"
+
 [project]
 name = "llm-judge-eval"
 version = "0.1.0"
@@ -24,7 +27,6 @@ dependencies = [
     "rich>=14.1.0",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
-    "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
     "tqdm>=4.67.1",
 ]
 
@@ -32,7 +34,14 @@ dependencies = [
 include = ["openjury*"]
 exclude = ["slurmpilot_scripts*"]
 
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "pre-commit>=4.5.1",
+    "pytest>=8.4.2",
+    "slurmpilot @ git+https://github.com/geoalgo/slurmpilot.git@main",
+]
+
 [project.optional-dependencies]
-vllm = ["vllm==0.10.2"]
+vllm = ["vllm==0.10.2", "transformers>=4.55.2,<5.0.0"]
 llamacpp = ["llama-cpp-python>=0.3.0"]
-dev = ["black>=25.1.0", "pytest>=8.4.2"]
