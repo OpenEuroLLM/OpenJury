@@ -451,9 +451,11 @@ def main(args: CliArgs):
     return prefs
 
 
-if __name__ == "__main__":
+def cli():
     args = CliArgs.parse_args()
-
     print(f"Running with CLI args: {args.__dict__}")
-
     main(args)
+
+
+if __name__ == "__main__":
+    cli()
