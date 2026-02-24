@@ -7,7 +7,7 @@ using an LLM judge with custom rubrics.
 Quick start::
 
     from openjury.rubrics import RubricScorer, get_rubric
-    from openjury.models.factory import make_model
+    from openjury.utils import make_model
 
     judge = make_model("VLLM/Qwen/Qwen2.5-32B-Instruct")
     rubric = get_rubric("default")

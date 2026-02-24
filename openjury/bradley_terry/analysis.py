@@ -37,7 +37,7 @@ class BTAnalysis:
                and regularization settings.
         scores_A: DataFrame of rubric scores for model A completions.
         scores_B: DataFrame of rubric scores for model B completions.
-        preferences: Series of pairwise preferences (1.0 = prefer A).
+        preferences: Series of pairwise preferences (0.0 = prefer A, 0.5 = tie, 1.0 = prefer B).
         metadata: DataFrame with grouping columns (e.g. ``annotator_type``,
                   ``language``, ``topic``).  Must be aligned with the other inputs.
     """

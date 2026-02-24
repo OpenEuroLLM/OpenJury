@@ -1,7 +1,7 @@
 """Centralized logging for OpenJury using Rich.
 
 Provides colored, structured console output with proper log levels.
-All modules should use ``from openjury._logging import logger`` instead of ``print()``.
+New modules should prefer ``from openjury._logging import logger`` instead of ``print()``.
 
 Environment variable ``OPENJURY_LOG_LEVEL`` controls verbosity:
     - DEBUG, INFO (default), WARNING, ERROR

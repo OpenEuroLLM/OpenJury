@@ -3,9 +3,9 @@
 Supports two modes:
 
 - **Pairwise** (default): Judge sees both A and B side-by-side, scores each
-  on rubric dimensions, then gives an overall preference. K calls (2K with
+  on rubric dimensions, then gives an overall preference. N calls (2N with
   swap-debiasing). Best for ranking.
-- **Sample-wise**: Judge scores each completion independently (2K calls).
+- **Sample-wise**: Judge scores each completion independently (2N calls).
   Preferences are derived from the weighted average of rubric dimension
   scores — no extra judge call. Optionally uses a reference answer as an
   anchor. Best for absolute quality assessment.
@@ -13,7 +13,7 @@ Supports two modes:
 Example (pairwise)::
 
     from openjury.rubrics import RubricScorer, get_rubric
-    from openjury.models.factory import make_model
+    from openjury.utils import make_model
 
     judge = make_model("VLLM/Qwen/Qwen3-32B")
     scorer = RubricScorer(judge_model=judge, rubric=get_rubric("default"))
