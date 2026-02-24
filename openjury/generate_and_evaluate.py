@@ -20,6 +20,12 @@ from openjury.instruction_dataset import load_instructions
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
+try:
+    from openjury._logging import logger, print_results as _print_results_rich
+except Exception:  # pragma: no cover - keep CLI working if Rich/logging setup fails
+    logger = None
+    _print_results_rich = None
+
 
 def try_load_dataset_completions(
     dataset: str, model: str, n_instructions: int | None
@@ -75,6 +81,10 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
+    enable_rubrics: bool = False
+    rubric_name: str = "default"
+    fit_bradley_terry: bool = False
+    bt_regularization: float = 0.01
 
     result_folder: str = "results"
 
@@ -195,6 +205,28 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
+        parser.add_argument(
+            "--enable_rubrics",
+            action="store_true",
+            help="If specified, run rubric-based pairwise scoring in addition to the legacy pairwise judge output.",
+        )
+        parser.add_argument(
+            "--rubric_name",
+            type=str,
+            default="default",
+            help="Rubric to use when --enable_rubrics is set (e.g. default, coding, translation, overall).",
+        )
+        parser.add_argument(
+            "--fit_bradley_terry",
+            action="store_true",
+            help="If specified with --enable_rubrics, fit the feature Bradley-Terry model on rubric scores.",
+        )
+        parser.add_argument(
+            "--bt_regularization",
+            type=float,
+            default=0.01,
+            help="L2 regularization strength for Bradley-Terry fitting (used when --fit_bradley_terry).",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -212,6 +244,10 @@ class CliArgs:
             max_out_tokens_judge=args.max_out_tokens_judge,
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
+            enable_rubrics=args.enable_rubrics,
+            rubric_name=args.rubric_name,
+            fit_bradley_terry=args.fit_bradley_terry,
+            bt_regularization=args.bt_regularization,
             result_folder=args.result_folder,
         )
 
@@ -223,6 +259,12 @@ def load_contexts(dataset: str) -> pd.Series:
 
 def print_results(results):
     """Print battle results in a nice formatted way"""
+    if _print_results_rich is not None:
+        try:
+            _print_results_rich(results)
+            return
+        except Exception:
+            pass
 
     print("\n" + "=" * 60)
     print("🏆 MODEL BATTLE RESULTS 🏆".center(60))
@@ -238,6 +280,26 @@ def print_results(results):
     print(f"   ❌ Losses: {results['num_losses']}")
     print(f"   🤝 Ties:   {results['num_ties']}")
     print("=" * 60 + "\n")
+
+
+def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
+    """Compute win/loss/tie stats for preference series (0=A, 0.5=tie, 1=B)."""
+    prefs = pd.Series(prefs, dtype="float64")
+    valid = prefs.dropna()
+    num_wins = int((valid < 0.5).sum())
+    num_losses = int((valid > 0.5).sum())
+    num_ties = int((valid == 0.5).sum())
+    num_battles = int(len(prefs))
+    denom = num_wins + num_losses + num_ties
+    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom > 0 else float("nan")
+    return {
+        "num_battles": num_battles,
+        "winrate": winrate,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+        "num_missing": int(num_battles - denom),
+    }
 
 
 def main(args: CliArgs):
@@ -421,29 +483,144 @@ def main(args: CliArgs):
         prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
+    summary = _compute_pref_summary(prefs)
 
     results = {
         "dataset": args.dataset,
         "model_A": args.model_A,
         "model_B": args.model_B,
         "judge_model": args.judge_model,
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": num_battles - (num_losses + num_wins + num_ties),
+        **summary,
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
         "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
+
+    if args.enable_rubrics:
+        print(
+            f"Running rubric pairwise scoring with rubric '{args.rubric_name}' "
+            f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'})."
+        )
+        if logger is not None:
+            logger.info(
+                "Rubric scoring enabled (rubric=%s, fit_bradley_terry=%s)",
+                args.rubric_name,
+                args.fit_bradley_terry,
+            )
+
+        try:
+            from openjury.rubrics import RubricScorer, get_rubric
+
+            rubric = get_rubric(args.rubric_name)
+            rubric_scorer = RubricScorer(
+                judge_model=judge_chat_model,
+                rubric=rubric,
+                provide_explanation=args.provide_explanation,
+            )
+
+            eval_instruction_index = instructions.head(n_instructions).index.tolist()
+            eval_instructions = instructions.head(n_instructions).tolist()
+            eval_completions_A = completions_A.head(n_instructions).tolist()
+            eval_completions_B = completions_B.head(n_instructions).tolist()
+
+            rubric_pairwise = rubric_scorer.score_pairwise(
+                instructions=eval_instructions,
+                completions_A=eval_completions_A,
+                completions_B=eval_completions_B,
+                swap_to_debias=(args.swap_mode == "both"),
+                use_tqdm=args.use_tqdm,
+            )
+
+            rubric_df_A, rubric_df_B, rubric_prefs = rubric_scorer.pairwise_to_dataframes(
+                rubric_pairwise,
+                model_A_name=args.model_A,
+                model_B_name=args.model_B,
+            )
+            rubric_df_A.loc[:, "instruction_index"] = eval_instruction_index
+            rubric_df_B.loc[:, "instruction_index"] = eval_instruction_index
+
+            rubric_prefix = f"{name}-rubric-{args.rubric_name}"
+            rubric_df_A.to_csv(res_folder / f"{rubric_prefix}-scores-A.csv", index=False)
+            rubric_df_B.to_csv(res_folder / f"{rubric_prefix}-scores-B.csv", index=False)
+            pd.DataFrame(
+                {
+                    "instruction_index": eval_instruction_index,
+                    "preference": rubric_prefs.tolist(),
+                }
+            ).to_csv(res_folder / f"{rubric_prefix}-preferences.csv", index=False)
+
+            rubric_pairwise_rows = []
+            for inst_idx, r in zip(eval_instruction_index, rubric_pairwise):
+                row = {
+                    "instruction_index": inst_idx,
+                    "preference": r.preference,
+                    "raw_judge_output": r.raw_judge_output,
+                    "raw_judge_output_swapped": r.raw_judge_output_swapped,
+                }
+                for dim_name, value in r.scores_A.items():
+                    row[f"A_{dim_name}"] = value
+                for dim_name, value in r.scores_B.items():
+                    row[f"B_{dim_name}"] = value
+                rubric_pairwise_rows.append(row)
+            pd.DataFrame(rubric_pairwise_rows).to_csv(
+                res_folder / f"{rubric_prefix}-pairwise.csv",
+                index=False,
+            )
+
+            rubric_summary = {
+                "dataset": args.dataset,
+                "model_A": args.model_A,
+                "model_B": args.model_B,
+                "judge_model": args.judge_model,
+                "rubric_name": args.rubric_name,
+                "rubric_dimensions": rubric.dimension_names,
+                "swap_debiasing": args.swap_mode == "both",
+                **_compute_pref_summary(rubric_prefs),
+                "preferences": rubric_prefs.tolist(),
+                "date": str(datetime.now().isoformat()),
+            }
+
+            if args.fit_bradley_terry:
+                try:
+                    from openjury.bradley_terry import FeatureBradleyTerry
+
+                    bt = FeatureBradleyTerry(
+                        dimension_names=rubric.dimension_names,
+                        regularization=args.bt_regularization,
+                    )
+                    bt.fit(
+                        scores_A=rubric_df_A,
+                        scores_B=rubric_df_B,
+                        preferences=rubric_prefs,
+                        verbose=True,
+                    )
+                    rubric_summary["bradley_terry"] = {
+                        "regularization": args.bt_regularization,
+                        "weights": bt.weight_dict(),
+                        "intercept": float(bt.intercept),
+                    }
+                    with open(res_folder / f"{rubric_prefix}-bt-weights.json", "w") as f:
+                        json.dump(rubric_summary["bradley_terry"], f, indent=2)
+                except Exception as e:
+                    msg = f"Bradley-Terry fitting failed: {e}"
+                    print(msg)
+                    if logger is not None:
+                        logger.warning(msg)
+                    rubric_summary["bradley_terry_error"] = str(e)
+
+            with open(res_folder / f"{rubric_prefix}-summary.json", "w") as f:
+                json.dump(rubric_summary, f, indent=2)
+            print(
+                f"Saved rubric outputs to {res_folder} "
+                f"(prefix: {rubric_prefix})."
+            )
+        except Exception as e:
+            msg = f"Rubric scoring failed: {e}"
+            print(msg)
+            if logger is not None:
+                logger.warning(msg)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
