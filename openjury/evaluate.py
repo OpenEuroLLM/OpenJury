@@ -10,12 +10,18 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
+from openjury.rubrics.pipeline import run_pairwise_rubric_pipeline
 from openjury.utils import (
     read_df,
     data_root,
     download_hf,
     do_inference,
 )
+
+try:
+    from openjury._logging import logger
+except Exception:  # pragma: no cover
+    logger = None
 
 
 class PairScore:
@@ -65,6 +71,26 @@ def load_judge_system_and_user_prompt(
     return system_prompt, user_prompt_template
 
 
+def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
+    """Compute win/loss/tie stats for preference series (0=A, 0.5=tie, 1=B)."""
+    prefs = pd.Series(prefs, dtype="float64")
+    valid = prefs.dropna()
+    num_wins = int((valid < 0.5).sum())
+    num_losses = int((valid > 0.5).sum())
+    num_ties = int((valid == 0.5).sum())
+    num_battles = int(len(prefs))
+    denom = num_wins + num_losses + num_ties
+    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom > 0 else float("nan")
+    return {
+        "num_battles": num_battles,
+        "winrate": winrate,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+        "num_missing": int(num_battles - denom),
+    }
+
+
 def evaluate_completions(
     dataset: str = "alpaca-eval",
     judge_chat_model: LLM = None,
@@ -74,6 +100,12 @@ def evaluate_completions(
     use_tqdm: bool = False,
     truncate_input_chars: int | None = 8192,
     provide_explanation: bool = False,
+    enable_rubrics: bool = False,
+    rubric_name: str = "default",
+    rubric_json: str | None = None,
+    fit_bradley_terry: bool = False,
+    bt_regularization: float = 0.01,
+    rubric_swap_to_debias: bool = False,
 ):
     """
     :param dataset:
@@ -148,25 +180,20 @@ def evaluate_completions(
         provide_explanation=provide_explanation,
     )
 
-    # print("--------\n".join([str(x) for x in annotations]))
-    # print results in term of 1) winrate 2) number of win/loss
-    prefs = pd.Series([annotation.preference for annotation in annotations])
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
-
+    # Legacy pairwise judge results
+    score_parser = PairScore()
+    prefs = pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
     results = {
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
+        **_compute_pref_summary(prefs),
     }
 
     print(f"{method_A} against {method_B}:\n{results}")
-    print([annotation.preference for annotation in annotations])
+    print(prefs.tolist())
 
     unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
     output_folder = data_root / "judge-evals" / unique_string
@@ -175,6 +202,54 @@ def evaluate_completions(
     pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
     with open(output_folder / "results.json", "w") as f:
         json.dump(results, f)
+
+    if enable_rubrics:
+        if logger is not None:
+            logger.info(
+                "Rubric scoring enabled in evaluate_completions (rubric=%s, fit_bradley_terry=%s)",
+                rubric_name,
+                fit_bradley_terry,
+            )
+        print(
+            f"Running rubric pairwise scoring with rubric '{rubric_json if rubric_json is not None else rubric_name}' "
+            f"(swap debiasing={'on' if rubric_swap_to_debias else 'off'})."
+        )
+        try:
+            eval_instruction_index = instructions.index.tolist()
+            eval_instructions = instructions.tolist()
+            eval_completions_A = completions_A.loc[instructions.index].tolist()
+            eval_completions_B = completions_B.loc[instructions.index].tolist()
+            run_info = run_pairwise_rubric_pipeline(
+                output_folder=output_folder,
+                output_prefix="",
+                judge_model=judge_chat_model,
+                instructions=eval_instructions,
+                completions_A=eval_completions_A,
+                completions_B=eval_completions_B,
+                instruction_index=eval_instruction_index,
+                model_A_name=method_A,
+                model_B_name=method_B,
+                provide_explanation=provide_explanation,
+                use_tqdm=use_tqdm,
+                rubric_name=rubric_name,
+                rubric_json=rubric_json,
+                swap_to_debias=rubric_swap_to_debias,
+                fit_bradley_terry=fit_bradley_terry,
+                bt_regularization=bt_regularization,
+                summary_fields={
+                    "dataset": dataset,
+                    "method_A": method_A,
+                    "method_B": method_B,
+                },
+            )
+            print(
+                f"Saved rubric outputs in {output_folder} "
+                f"(prefix: {run_info['prefix']})."
+            )
+        except Exception as e:
+            print(f"Rubric scoring failed: {e}")
+            if logger is not None:
+                logger.warning("Rubric scoring failed: %s", e)
 
 
 @dataclass

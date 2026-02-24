@@ -22,6 +22,7 @@ Quick start::
 
 from openjury.rubrics.schema import Rubric, RubricDimension, RubricScore, PairwiseRubricResult
 from openjury.rubrics.defaults import DEFAULT_RUBRICS, RUBRIC_REGISTRY, get_rubric, register_rubric
+from openjury.rubrics.io import load_rubric_from_json, register_rubric_from_json, resolve_rubric
 from openjury.rubrics.scorer import RubricScorer
 
 __all__ = [
@@ -34,4 +35,7 @@ __all__ = [
     "RubricScorer",
     "get_rubric",
     "register_rubric",
+    "load_rubric_from_json",
+    "register_rubric_from_json",
+    "resolve_rubric",
 ]

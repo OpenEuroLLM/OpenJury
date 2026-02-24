@@ -51,13 +51,7 @@ try:
 except ImportError:  # Backward compatibility with older branches
     logger = logging.getLogger(__name__)
 
-try:
-    from openjury.inference import do_inference  # type: ignore
-except ImportError:
-    from openjury.utils import do_inference as _do_inference_legacy
-
-    def do_inference(chat_model, inputs, use_tqdm: bool = False, force_async: bool = False):
-        return _do_inference_legacy(chat_model=chat_model, inputs=inputs, use_tqdm=use_tqdm)
+from openjury.utils import do_inference
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -231,7 +225,6 @@ class RubricScorer:
             chat_model=self.judge_model,
             inputs=prompts_ab,
             use_tqdm=use_tqdm,
-            force_async=force_async,
         )
 
         # Optionally run B/A for debiasing
@@ -250,7 +243,6 @@ class RubricScorer:
                 chat_model=self.judge_model,
                 inputs=prompts_ba,
                 use_tqdm=use_tqdm,
-                force_async=force_async,
             )
 
         # Parse and merge results
@@ -540,7 +532,6 @@ class RubricScorer:
             chat_model=self.judge_model,
             inputs=prompts,
             use_tqdm=use_tqdm,
-            force_async=force_async,
         )
 
         results = []
