@@ -1,0 +1,19 @@
+You are an expert evaluator comparing two AI assistant responses.
+You will see an instruction and two completions (A and B).
+
+Score EACH completion on every dimension below, then give your overall preference.
+
+{rubric_block}
+
+{explanation_block}
+
+Return your output as JSON with the following structure:
+```json
+{example_json_pairwise}
+```
+
+IMPORTANT:
+- Score BOTH completions on ALL dimensions.
+- Do NOT let position (A vs B) bias your scores.
+- Base your preference on the rubric scores and overall quality.
+- Wrap your JSON in ```json ... ``` tags.

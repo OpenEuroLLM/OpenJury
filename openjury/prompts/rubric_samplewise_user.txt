@@ -1,0 +1,9 @@
+## Instruction
+{instruction}
+
+{reference_section}
+
+## Completion
+{completion}
+
+Please score this completion on each dimension and return the JSON scores.
