@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -46,18 +47,8 @@ import pandas as pd
 
 from openjury.prompts import load_prompt
 from openjury.rubrics.schema import Rubric, RubricScore, PairwiseRubricResult
-logger = logging.getLogger(__name__)
 from openjury.utils import do_inference
-
-
-# ═════════════════════════════════════════════════════════════════════
-#  Prompt Templates — loaded from openjury/prompts/*.txt
-# ═════════════════════════════════════════════════════════════════════
-
-SAMPLEWISE_SYSTEM_PROMPT = load_prompt("rubric_samplewise_system")
-SAMPLEWISE_USER_TEMPLATE = load_prompt("rubric_samplewise_user")
-PAIRWISE_SYSTEM_PROMPT = load_prompt("rubric_pairwise_system")
-PAIRWISE_USER_TEMPLATE = load_prompt("rubric_pairwise_user")
+logger = logging.getLogger(__name__)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -71,10 +62,22 @@ class RubricScorer:
     Supports pairwise (A vs B) and sample-wise (independent) scoring.
 
     Args:
-        judge_model: A model backend (anything with ``.invoke`` / ``.batch``).
+        judge_model: A LangChain-compatible chat model or wrapper accepted by
+            ``openjury.utils.do_inference``.
         rubric: The rubric to evaluate against.
         provide_explanation: Whether to ask the judge for explanations.
     """
+
+    @classmethod
+    @lru_cache(maxsize=1)
+    def _prompt_templates(cls) -> dict[str, str]:
+        """Load rubric prompt templates once per process."""
+        return {
+            "samplewise_system": load_prompt("rubric_samplewise_system"),
+            "samplewise_user": load_prompt("rubric_samplewise_user"),
+            "pairwise_system": load_prompt("rubric_pairwise_system"),
+            "pairwise_user": load_prompt("rubric_pairwise_user"),
+        }
 
     def __init__(
         self,
@@ -115,14 +118,18 @@ class RubricScorer:
             indent=2,
         )
 
+        templates = self._prompt_templates()
+        self._samplewise_user_template = templates["samplewise_user"]
+        self._pairwise_user_template = templates["pairwise_user"]
+
         # Build system prompts for both modes
-        self._samplewise_system = SAMPLEWISE_SYSTEM_PROMPT.format(
+        self._samplewise_system = templates["samplewise_system"].format(
             rubric_block=rubric.prompt_block(),
             reference_block="",  # Filled dynamically when reference is provided
             explanation_block=explanation_block,
             example_json=_example_json,
         )
-        self._samplewise_system_with_ref = SAMPLEWISE_SYSTEM_PROMPT.format(
+        self._samplewise_system_with_ref = templates["samplewise_system"].format(
             rubric_block=rubric.prompt_block(),
             reference_block=(
                 "You are also given a REFERENCE ANSWER. Use it as an anchor to "
@@ -132,7 +139,7 @@ class RubricScorer:
             explanation_block=explanation_block,
             example_json=_example_json,
         )
-        self._pairwise_system = PAIRWISE_SYSTEM_PROMPT.format(
+        self._pairwise_system = templates["pairwise_system"].format(
             rubric_block=rubric.prompt_block(),
             explanation_block=explanation_block,
             example_json_pairwise=_example_pairwise,
@@ -200,7 +207,7 @@ class RubricScorer:
             completions_B: Completions from model B.
             swap_to_debias: Run A/B + B/A and average (recommended).
             use_tqdm: Show progress bar.
-            force_async: Use async inference for API models.
+            force_async: Ignored on this branch; kept for API compatibility.
 
         Returns:
             List of PairwiseRubricResult, one per instruction.
@@ -283,7 +290,7 @@ class RubricScorer:
         """Build chat prompts for pairwise comparison."""
         prompts = []
         for instr, comp_a, comp_b in zip(instructions, completions_A, completions_B):
-            user_msg = PAIRWISE_USER_TEMPLATE.format(
+            user_msg = self._pairwise_user_template.format(
                 instruction=instr,
                 completion_A=comp_a,
                 completion_B=comp_b,
@@ -418,7 +425,7 @@ class RubricScorer:
             if has_ref and reference_answers[i]:
                 ref_section = f"## Reference Answer\n{reference_answers[i]}"
 
-            user_msg = SAMPLEWISE_USER_TEMPLATE.format(
+            user_msg = self._samplewise_user_template.format(
                 instruction=instruction,
                 reference_section=ref_section,
                 completion=completion,
@@ -499,7 +506,7 @@ class RubricScorer:
             completions: List of model completions.
             model_name: Name of the model that generated the completions.
             use_tqdm: Whether to show progress bar.
-            force_async: Use async inference for API models.
+            force_async: Ignored on this branch; kept for API compatibility.
             reference_answers: Optional list of reference/ground-truth answers
                 to anchor scoring. Can come from another LLM or human labels.
 
