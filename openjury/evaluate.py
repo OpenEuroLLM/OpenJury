@@ -18,11 +18,6 @@ from openjury.utils import (
     do_inference,
 )
 
-try:
-    from openjury._logging import logger
-except Exception:  # pragma: no cover
-    logger = None
-
 
 class PairScore:
     def __init__(self):
@@ -103,8 +98,6 @@ def evaluate_completions(
     enable_rubrics: bool = False,
     rubric_name: str = "default",
     rubric_json: str | None = None,
-    fit_bradley_terry: bool = False,
-    bt_regularization: float = 0.01,
     rubric_swap_to_debias: bool = False,
 ):
     """
@@ -204,12 +197,6 @@ def evaluate_completions(
         json.dump(results, f)
 
     if enable_rubrics:
-        if logger is not None:
-            logger.info(
-                "Rubric scoring enabled in evaluate_completions (rubric=%s, fit_bradley_terry=%s)",
-                rubric_name,
-                fit_bradley_terry,
-            )
         print(
             f"Running rubric pairwise scoring with rubric '{rubric_json if rubric_json is not None else rubric_name}' "
             f"(swap debiasing={'on' if rubric_swap_to_debias else 'off'})."
@@ -234,8 +221,6 @@ def evaluate_completions(
                 rubric_name=rubric_name,
                 rubric_json=rubric_json,
                 swap_to_debias=rubric_swap_to_debias,
-                fit_bradley_terry=fit_bradley_terry,
-                bt_regularization=bt_regularization,
                 summary_fields={
                     "dataset": dataset,
                     "method_A": method_A,
@@ -248,8 +233,6 @@ def evaluate_completions(
             )
         except Exception as e:
             print(f"Rubric scoring failed: {e}")
-            if logger is not None:
-                logger.warning("Rubric scoring failed: %s", e)
 
 
 @dataclass

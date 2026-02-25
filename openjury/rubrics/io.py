@@ -5,11 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-try:
-    from openjury._logging import logger
-except Exception:  # pragma: no cover
-    logger = None
-
 from openjury.rubrics.defaults import get_rubric, register_rubric
 from openjury.rubrics.schema import Rubric, RubricDimension
 
@@ -39,8 +34,6 @@ def register_rubric_from_json(path: str | Path) -> Rubric:
     """Load a rubric JSON file and register it in the runtime registry."""
     rubric = load_rubric_from_json(path)
     register_rubric(rubric)
-    if logger is not None:
-        logger.info("Registered rubric from JSON: %s (name=%s)", path, rubric.name)
     return rubric
 
 

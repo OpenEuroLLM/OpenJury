@@ -1,4 +1,4 @@
-"""Shared pairwise rubric scoring + Bradley-Terry pipeline helpers."""
+"""Shared pairwise rubric scoring pipeline helpers."""
 
 from __future__ import annotations
 
@@ -48,11 +48,9 @@ def run_pairwise_rubric_pipeline(
     rubric_name: str = "default",
     rubric_json: str | Path | None = None,
     swap_to_debias: bool = False,
-    fit_bradley_terry: bool = False,
-    bt_regularization: float = 0.01,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run pairwise rubric scoring and optional BT fitting, then save outputs."""
+    """Run pairwise rubric scoring and save outputs."""
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -108,22 +106,6 @@ def run_pairwise_rubric_pipeline(
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
     }
-
-    if fit_bradley_terry:
-        from openjury.bradley_terry import FeatureBradleyTerry
-
-        bt = FeatureBradleyTerry(
-            dimension_names=rubric.dimension_names,
-            regularization=bt_regularization,
-        )
-        bt.fit(scores_A=df_A, scores_B=df_B, preferences=prefs, verbose=True)
-        summary["bradley_terry"] = {
-            "regularization": bt_regularization,
-            "weights": bt.weight_dict(),
-            "intercept": float(bt.intercept),
-        }
-        with open(output_folder / f"{prefix_base}-bt-weights.json", "w") as f:
-            json.dump(summary["bradley_terry"], f, indent=2)
 
     with open(output_folder / f"{prefix_base}-summary.json", "w") as f:
         json.dump(summary, f, indent=2)

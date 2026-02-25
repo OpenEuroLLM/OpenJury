@@ -46,11 +46,7 @@ import pandas as pd
 
 from openjury.prompts import load_prompt
 from openjury.rubrics.schema import Rubric, RubricScore, PairwiseRubricResult
-try:
-    from openjury._logging import logger
-except ImportError:  # Backward compatibility with older branches
-    logger = logging.getLogger(__name__)
-
+logger = logging.getLogger(__name__)
 from openjury.utils import do_inference
 
 

@@ -21,12 +21,6 @@ from openjury.rubrics.pipeline import run_pairwise_rubric_pipeline
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
-try:
-    from openjury._logging import logger, print_results as _print_results_rich
-except Exception:  # pragma: no cover - keep CLI working if Rich/logging setup fails
-    logger = None
-    _print_results_rich = None
-
 
 def try_load_dataset_completions(
     dataset: str, model: str, n_instructions: int | None
@@ -85,8 +79,6 @@ class CliArgs:
     enable_rubrics: bool = False
     rubric_name: str = "default"
     rubric_json: str | None = None
-    fit_bradley_terry: bool = False
-    bt_regularization: float = 0.01
 
     result_folder: str = "results"
 
@@ -224,17 +216,6 @@ class CliArgs:
             default=None,
             help="Optional path to a custom rubric JSON file. If provided, this overrides --rubric_name.",
         )
-        parser.add_argument(
-            "--fit_bradley_terry",
-            action="store_true",
-            help="If specified with --enable_rubrics, fit the feature Bradley-Terry model on rubric scores.",
-        )
-        parser.add_argument(
-            "--bt_regularization",
-            type=float,
-            default=0.01,
-            help="L2 regularization strength for Bradley-Terry fitting (used when --fit_bradley_terry).",
-        )
         args = parser.parse_args()
 
         return cls(
@@ -255,8 +236,6 @@ class CliArgs:
             enable_rubrics=args.enable_rubrics,
             rubric_name=args.rubric_name,
             rubric_json=args.rubric_json,
-            fit_bradley_terry=args.fit_bradley_terry,
-            bt_regularization=args.bt_regularization,
             result_folder=args.result_folder,
         )
 
@@ -268,12 +247,6 @@ def load_contexts(dataset: str) -> pd.Series:
 
 def print_results(results):
     """Print battle results in a nice formatted way"""
-    if _print_results_rich is not None:
-        try:
-            _print_results_rich(results)
-            return
-        except Exception:
-            pass
 
     print("\n" + "=" * 60)
     print("🏆 MODEL BATTLE RESULTS 🏆".center(60))
@@ -513,13 +486,6 @@ def main(args: CliArgs):
             f"Running rubric pairwise scoring with rubric '{rubric_label}' "
             f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'})."
         )
-        if logger is not None:
-            logger.info(
-                "Rubric scoring enabled (rubric=%s, rubric_json=%s, fit_bradley_terry=%s)",
-                args.rubric_name,
-                args.rubric_json,
-                args.fit_bradley_terry,
-            )
 
         try:
             eval_instruction_index = instructions.head(n_instructions).index.tolist()
@@ -542,8 +508,6 @@ def main(args: CliArgs):
                 rubric_name=args.rubric_name,
                 rubric_json=args.rubric_json,
                 swap_to_debias=(args.swap_mode == "both"),
-                fit_bradley_terry=args.fit_bradley_terry,
-                bt_regularization=args.bt_regularization,
                 summary_fields={
                     "dataset": args.dataset,
                     "model_A": args.model_A,
@@ -558,8 +522,6 @@ def main(args: CliArgs):
         except Exception as e:
             msg = f"Rubric scoring failed: {e}"
             print(msg)
-            if logger is not None:
-                logger.warning(msg)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)

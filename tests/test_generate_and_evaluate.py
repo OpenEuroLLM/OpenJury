@@ -90,8 +90,8 @@ def test_generate_and_evaluate_correct_order_bias(tmp_path):
     assert avg_pref == 0.5
 
 
-def test_generate_and_evaluate_rubric_and_bt_outputs(tmp_path, monkeypatch):
-    """Smoke test rubric/BT hook and rubric_json forwarding without real judge calls."""
+def test_generate_and_evaluate_rubric_outputs_with_rubric_json(tmp_path, monkeypatch):
+    """Smoke test rubric hook and rubric_json forwarding without real judge calls."""
     rubric_json_path = tmp_path / "custom_rubric.json"
     rubric_json_path.write_text(
         json.dumps(
@@ -117,20 +117,10 @@ def test_generate_and_evaluate_rubric_and_bt_outputs(tmp_path, monkeypatch):
             out_dir / f"{prefix}-preferences.csv",
             index=False,
         )
-        with open(out_dir / f"{prefix}-bt-weights.json", "w") as f:
-            json.dump(
-                {
-                    "regularization": kwargs["bt_regularization"],
-                    "weights": {"overall": 1.0},
-                    "intercept": 0.123,
-                },
-                f,
-            )
         with open(out_dir / f"{prefix}-summary.json", "w") as f:
             json.dump(
                 {
                     "rubric_name": "my_custom",
-                    "bradley_terry": {"weights": {"overall": 1.0}},
                 },
                 f,
             )
@@ -152,7 +142,6 @@ def test_generate_and_evaluate_rubric_and_bt_outputs(tmp_path, monkeypatch):
             enable_rubrics=True,
             rubric_name="overall",
             rubric_json=str(rubric_json_path),
-            fit_bradley_terry=True,
             result_folder=str(tmp_path),
         )
     )
@@ -160,13 +149,9 @@ def test_generate_and_evaluate_rubric_and_bt_outputs(tmp_path, monkeypatch):
     assert len(prefs) == 4
 
     summary_files = list(tmp_path.rglob("*-rubric-my_custom-summary.json"))
-    bt_files = list(tmp_path.rglob("*-rubric-my_custom-bt-weights.json"))
     pref_files = list(tmp_path.rglob("*-rubric-my_custom-preferences.csv"))
     assert len(summary_files) == 1
-    assert len(bt_files) == 1
     assert len(pref_files) == 1
 
     rubric_summary = json.loads(summary_files[0].read_text())
     assert rubric_summary["rubric_name"] == "my_custom"
-    assert "bradley_terry" in rubric_summary
-    assert rubric_summary["bradley_terry"]["weights"]["overall"] == 1.0
