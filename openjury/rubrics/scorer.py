@@ -12,7 +12,8 @@ Supports two modes:
 
 Example (pairwise)::
 
-    from openjury.rubrics import RubricScorer, get_rubric
+    from openjury.rubrics.defaults import get_rubric
+    from openjury.rubrics.scorer import RubricScorer
     from openjury.utils import make_model
 
     judge = make_model("VLLM/Qwen/Qwen3-32B")

@@ -1,14 +1,11 @@
-"""Public rubrics API for rubric scoring and custom rubric loading."""
+"""Rubrics package for structured LLM evaluation.
 
-from openjury.rubrics.defaults import get_rubric, register_rubric
-from openjury.rubrics.io import load_rubric_from_json, register_rubric_from_json, resolve_rubric
-from openjury.rubrics.scorer import RubricScorer
+Modules:
+    - ``openjury.rubrics.schema``: dataclasses for rubric definitions and scores
+    - ``openjury.rubrics.defaults``: built-in rubric registry (currently ``default``)
+    - ``openjury.rubrics.io``: custom rubric loading/registration from JSON
+    - ``openjury.rubrics.scorer``: rubric scoring with an LLM judge
+    - ``openjury.rubrics.pipeline``: shared rubric pipeline output helpers
 
-__all__ = [
-    "RubricScorer",
-    "get_rubric",
-    "register_rubric",
-    "load_rubric_from_json",
-    "register_rubric_from_json",
-    "resolve_rubric",
-]
+Prefer explicit imports from submodules in this package.
+"""

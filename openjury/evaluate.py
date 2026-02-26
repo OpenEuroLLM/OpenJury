@@ -97,7 +97,7 @@ def evaluate_completions(
     provide_explanation: bool = False,
     enable_rubrics: bool = False,
     rubric_name: str = "default",
-    rubric_json: str | None = None,
+    rubric_file: str | None = None,
     rubric_swap_to_debias: bool = False,
 ):
     """
@@ -198,7 +198,7 @@ def evaluate_completions(
 
     if enable_rubrics:
         print(
-            f"Running rubric pairwise scoring with rubric '{rubric_json if rubric_json is not None else rubric_name}' "
+            f"Running rubric pairwise scoring with rubric '{rubric_file if rubric_file is not None else rubric_name}' "
             f"(swap debiasing={'on' if rubric_swap_to_debias else 'off'})."
         )
         try:
@@ -219,7 +219,7 @@ def evaluate_completions(
                 provide_explanation=provide_explanation,
                 use_tqdm=use_tqdm,
                 rubric_name=rubric_name,
-                rubric_json=rubric_json,
+                rubric_file=rubric_file,
                 swap_to_debias=rubric_swap_to_debias,
                 summary_fields={
                     "dataset": dataset,

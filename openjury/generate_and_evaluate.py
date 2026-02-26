@@ -78,7 +78,7 @@ class CliArgs:
     chat_template: str | None = None
     enable_rubrics: bool = False
     rubric_name: str = "default"
-    rubric_json: str | None = None
+    rubric_file: str | None = None
 
     result_folder: str = "results"
 
@@ -208,13 +208,13 @@ class CliArgs:
             "--rubric_name",
             type=str,
             default="default",
-            help="Rubric to use when --enable_rubrics is set (e.g. default, coding, translation, overall).",
+            help="Built-in rubric name to use when --enable_rubrics is set (currently: default). Ignored if --rubric_file is provided.",
         )
         parser.add_argument(
-            "--rubric_json",
+            "--rubric_file",
             type=str,
             default=None,
-            help="Optional path to a custom rubric JSON file. If provided, this overrides --rubric_name.",
+            help="Optional path to a custom rubric file. JSON is supported in this PR. If provided, this overrides --rubric_name.",
         )
         args = parser.parse_args()
 
@@ -235,7 +235,7 @@ class CliArgs:
             chat_template=args.chat_template,
             enable_rubrics=args.enable_rubrics,
             rubric_name=args.rubric_name,
-            rubric_json=args.rubric_json,
+            rubric_file=args.rubric_file,
             result_folder=args.result_folder,
         )
 
@@ -481,7 +481,7 @@ def main(args: CliArgs):
     print_results(results)
 
     if args.enable_rubrics:
-        rubric_label = args.rubric_json if args.rubric_json is not None else args.rubric_name
+        rubric_label = args.rubric_file if args.rubric_file is not None else args.rubric_name
         print(
             f"Running rubric pairwise scoring with rubric '{rubric_label}' "
             f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'})."
@@ -506,7 +506,7 @@ def main(args: CliArgs):
                 provide_explanation=args.provide_explanation,
                 use_tqdm=args.use_tqdm,
                 rubric_name=args.rubric_name,
-                rubric_json=args.rubric_json,
+                rubric_file=args.rubric_file,
                 swap_to_debias=(args.swap_mode == "both"),
                 summary_fields={
                     "dataset": args.dataset,

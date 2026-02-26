@@ -90,10 +90,10 @@ def test_generate_and_evaluate_correct_order_bias(tmp_path):
     assert avg_pref == 0.5
 
 
-def test_generate_and_evaluate_rubric_outputs_with_rubric_json(tmp_path, monkeypatch):
-    """Smoke test rubric hook and rubric_json forwarding without real judge calls."""
-    rubric_json_path = tmp_path / "custom_rubric.json"
-    rubric_json_path.write_text(
+def test_generate_and_evaluate_rubric_outputs_with_rubric_file(tmp_path, monkeypatch):
+    """Smoke test rubric hook and rubric_file forwarding without real judge calls."""
+    rubric_file_path = tmp_path / "custom_rubric.json"
+    rubric_file_path.write_text(
         json.dumps(
             {
                 "name": "my_custom",
@@ -108,8 +108,8 @@ def test_generate_and_evaluate_rubric_outputs_with_rubric_json(tmp_path, monkeyp
     )
 
     def fake_run_pairwise_rubric_pipeline(**kwargs):
-        assert kwargs["rubric_json"] == str(rubric_json_path)
-        # rubric_json should override rubric_name later in the shared helper
+        assert kwargs["rubric_file"] == str(rubric_file_path)
+        # rubric_file should override rubric_name later in the shared helper
         assert kwargs["rubric_name"] == "overall"
         out_dir = kwargs["output_folder"]
         prefix = f"{kwargs['output_prefix']}-rubric-my_custom"
@@ -141,7 +141,7 @@ def test_generate_and_evaluate_rubric_outputs_with_rubric_json(tmp_path, monkeyp
             n_instructions=4,
             enable_rubrics=True,
             rubric_name="overall",
-            rubric_json=str(rubric_json_path),
+            rubric_file=str(rubric_file_path),
             result_folder=str(tmp_path),
         )
     )

@@ -46,7 +46,7 @@ def run_pairwise_rubric_pipeline(
     provide_explanation: bool = False,
     use_tqdm: bool = False,
     rubric_name: str = "default",
-    rubric_json: str | Path | None = None,
+    rubric_file: str | Path | None = None,
     swap_to_debias: bool = False,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -54,7 +54,7 @@ def run_pairwise_rubric_pipeline(
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    rubric = resolve_rubric(rubric_name=rubric_name, rubric_json=rubric_json)
+    rubric = resolve_rubric(rubric_name=rubric_name, rubric_file=rubric_file)
     scorer = RubricScorer(
         judge_model=judge_model,
         rubric=rubric,

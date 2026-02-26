@@ -31,7 +31,7 @@ class RubricDimension:
     score_references: dict[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.scale_min > self.scale_max:
+        if self.scale_min >= self.scale_max:
             raise ValueError(
                 f"Invalid rubric scale for '{self.name}': "
                 f"{self.scale_min} > {self.scale_max}"

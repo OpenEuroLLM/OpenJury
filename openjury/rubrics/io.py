@@ -1,4 +1,4 @@
-"""Rubric JSON I/O helpers."""
+"""Rubric I/O helpers (JSON-only for now)."""
 
 from __future__ import annotations
 
@@ -37,11 +37,36 @@ def register_rubric_from_json(path: str | Path) -> Rubric:
     return rubric
 
 
+def load_rubric_from_file(path: str | Path) -> Rubric:
+    """Load a rubric from a file path.
+
+    Currently only JSON files are supported. This function exists to keep the
+    call site API format-agnostic for future YAML support.
+    """
+    path = Path(path)
+    if path.suffix.lower() != ".json":
+        raise ValueError(
+            f"Unsupported rubric file format '{path.suffix}'. "
+            "Only .json is supported in this PR."
+        )
+    return load_rubric_from_json(path)
+
+
+def register_rubric_from_file(path: str | Path) -> Rubric:
+    """Load a rubric file and register it (JSON-only for now)."""
+    rubric = load_rubric_from_file(path)
+    register_rubric(rubric)
+    return rubric
+
+
 def resolve_rubric(
     rubric_name: str = "default",
-    rubric_json: str | Path | None = None,
+    rubric_file: str | Path | None = None,
 ) -> Rubric:
-    """Resolve rubric by name or JSON path (JSON path takes precedence)."""
-    if rubric_json is not None:
-        return register_rubric_from_json(rubric_json)
+    """Resolve rubric by name or file path (file path takes precedence).
+
+    Currently ``rubric_file`` supports JSON only.
+    """
+    if rubric_file is not None:
+        return register_rubric_from_file(rubric_file)
     return get_rubric(rubric_name)
