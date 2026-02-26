@@ -37,6 +37,7 @@ cd OpenJury
 uv sync 
 uv sync --extra vllm      # Optional: install vLLM support
 uv sync --extra llamacpp   # Optional: install LlamaCpp support
+uv sync --extra sklearn    # Optional: install Bradley-Terry support (criteria-based)
 ```
 
 ### Basic Evaluation
@@ -111,6 +112,27 @@ python openjury/generate_and_evaluate.py \
   --enable_criteria \
   --criteria_file my_criteria.json
 ```
+
+### Bradley-Terry on Criteria (Optional)
+
+You can also fit a Bradley-Terry model on the criteria score differences and save criterion weights.
+
+```bash
+python openjury/generate_and_evaluate.py \
+  --dataset alpaca-eval \
+  --model_A gpt4_1106_preview \
+  --model_B VLLM/utter-project/EuroLLM-9B \
+  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
+  --n_instructions 10 \
+  --enable_criteria \
+  --criteria_name default \
+  --fit_bradley_terry \
+  --bt_regularization 0.01 \
+  --bt_tie_epsilon 0.05
+```
+
+This writes an additional file next to the criteria outputs:
+- `*-bt-weights.json`
 
 ### Length and Token Parameters
 
