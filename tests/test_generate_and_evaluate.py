@@ -155,3 +155,37 @@ def test_generate_and_evaluate_criteria_outputs_with_criteria_file(tmp_path, mon
 
     criteria_summary = json.loads(summary_files[0].read_text())
     assert criteria_summary["criteria_name"] == "my_custom"
+
+
+def test_generate_and_evaluate_forwards_bt_options_to_criteria_pipeline(tmp_path, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_run_pairwise_criteria_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {"prefix": "dummy-prefix"}
+
+    monkeypatch.setattr(
+        generate_and_evaluate,
+        "run_pairwise_criteria_pipeline",
+        fake_run_pairwise_criteria_pipeline,
+    )
+
+    prefs = main_generate_and_eval(
+        CliArgs(
+            dataset="alpaca-eval",
+            model_A="Dummy/no answer",
+            model_B="Dummy/open is better than close isnt'it",
+            judge_model="Dummy/score A: 10 score B: 0",
+            n_instructions=3,
+            enable_criteria=True,
+            fit_bradley_terry=True,
+            bt_regularization=0.123,
+            bt_tie_epsilon=0.07,
+            result_folder=str(tmp_path),
+        )
+    )
+
+    assert len(prefs) == 3
+    assert captured["fit_bradley_terry"] is True
+    assert captured["bt_regularization"] == 0.123
+    assert captured["bt_tie_epsilon"] == 0.07

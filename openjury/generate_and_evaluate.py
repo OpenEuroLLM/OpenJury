@@ -79,6 +79,9 @@ class CliArgs:
     enable_criteria: bool = False
     criteria_name: str = "default"
     criteria_file: str | None = None
+    fit_bradley_terry: bool = False
+    bt_regularization: float = 0.01
+    bt_tie_epsilon: float = 0.05
 
     result_folder: str = "results"
 
@@ -216,6 +219,23 @@ class CliArgs:
             default=None,
             help="Optional path to a custom criteria file. JSON is supported in this PR. If provided, this overrides --criteria_name.",
         )
+        parser.add_argument(
+            "--fit_bradley_terry",
+            action="store_true",
+            help="If specified, fit a Bradley-Terry model on criteria score differences and save BT weights.",
+        )
+        parser.add_argument(
+            "--bt_regularization",
+            type=float,
+            default=0.01,
+            help="L2 regularization strength for the Bradley-Terry logistic model (sklearn C = 1/lambda).",
+        )
+        parser.add_argument(
+            "--bt_tie_epsilon",
+            type=float,
+            default=0.05,
+            help="Treat preferences within |pref-0.5| <= epsilon as ties before Bradley-Terry fitting.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -236,6 +256,9 @@ class CliArgs:
             enable_criteria=args.enable_criteria,
             criteria_name=args.criteria_name,
             criteria_file=args.criteria_file,
+            fit_bradley_terry=args.fit_bradley_terry,
+            bt_regularization=args.bt_regularization,
+            bt_tie_epsilon=args.bt_tie_epsilon,
             result_folder=args.result_folder,
         )
 
@@ -484,7 +507,8 @@ def main(args: CliArgs):
         criteria_label = args.criteria_file if args.criteria_file is not None else args.criteria_name
         print(
             f"Running criteria pairwise scoring with criteria '{criteria_label}' "
-            f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'})."
+            f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'}, "
+            f"bt={'on' if args.fit_bradley_terry else 'off'})."
         )
 
         try:
@@ -508,6 +532,9 @@ def main(args: CliArgs):
                 criteria_name=args.criteria_name,
                 criteria_file=args.criteria_file,
                 swap_to_debias=(args.swap_mode == "both"),
+                fit_bradley_terry=args.fit_bradley_terry,
+                bt_regularization=args.bt_regularization,
+                bt_tie_epsilon=args.bt_tie_epsilon,
                 summary_fields={
                     "dataset": args.dataset,
                     "model_A": args.model_A,

@@ -1,14 +1,14 @@
-"""Bradley-Terry model augmented with interpretable rubric features.
+"""Bradley-Terry model augmented with interpretable criteria features.
 
 Implements::
 
     p(A ≻ B | x) = σ(wᵀ [Φ(x, A) - Φ(x, B)])
 
-where ``Φ(x, y)`` is a vector of rubric scores and ``w`` are learned weights.
+where ``Φ(x, y)`` is a vector of criteria scores and ``w`` are learned weights.
 
-This module requires the optional BT dependency extra:
-    - ``uv sync --extra bt``
-    - ``pip install -e '.[bt]'``
+This module requires the optional sklearn dependency extra:
+    - ``uv sync --extra sklearn``
+    - ``pip install -e '.[sklearn]'``
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class FeatureBradleyTerry:
     """Bradley-Terry model with interpretable feature weights.
 
     Wraps an sklearn estimator (default: ``LogisticRegression``) that operates
-    on standardized rubric-score differences ``Φ(A) - Φ(B)``.
+    on standardized criteria-score differences ``Φ(A) - Φ(B)``.
 
     Preference convention:
         ``0.0 = A wins``, ``0.5 = tie``, ``1.0 = B wins``.
@@ -39,7 +39,7 @@ class FeatureBradleyTerry:
         a sample is treated as tie if ``abs(pref - 0.5) <= tie_epsilon``.
     """
 
-    dimension_names: list[str]
+    criterion_names: list[str]
     regularization: float = 0.01
     tie_epsilon: float = 0.05
     estimator: Any = None
@@ -67,9 +67,9 @@ class FeatureBradleyTerry:
             )
 
     @property
-    def k(self) -> int:
-        """Number of feature dimensions."""
-        return len(self.dimension_names)
+    def num_criteria(self) -> int:
+        """Number of criteria features."""
+        return len(self.criterion_names)
 
     def _prepare_data(
         self,
@@ -80,8 +80,8 @@ class FeatureBradleyTerry:
         """Prepare feature matrices and labels.
 
         Args:
-            scores_A: Rubric scores for model A.
-            scores_B: Rubric scores for model B.
+            scores_A: Criteria scores for model A.
+            scores_B: Criteria scores for model B.
             preferences: ``0.0 = A wins``, ``1.0 = B wins``, ``0.5 = tie``.
                 If ``None``, returns only feature matrices (for prediction).
 
@@ -89,8 +89,8 @@ class FeatureBradleyTerry:
             ``(phi_A, phi_B, y)`` where ``y`` is binary labels
             (``1 = A wins``) with ties removed, or ``None``.
         """
-        phi_A = scores_A[self.dimension_names].values.astype(float)
-        phi_B = scores_B[self.dimension_names].values.astype(float)
+        phi_A = scores_A[self.criterion_names].values.astype(float)
+        phi_B = scores_B[self.criterion_names].values.astype(float)
 
         if preferences is None:
             return phi_A, phi_B, None
@@ -136,11 +136,11 @@ class FeatureBradleyTerry:
         verbose: bool = True,
         **estimator_kwargs,
     ) -> FeatureBradleyTerry:
-        """Fit the model on rubric score differences.
+        """Fit the model on criteria score differences.
 
         Args:
-            scores_A: Rubric scores for model A.
-            scores_B: Rubric scores for model B.
+            scores_A: Criteria scores for model A.
+            scores_B: Criteria scores for model B.
             preferences: ``0.0 = A wins``, ``1.0 = B wins``, ``0.5 = tie``.
             fit_intercept: Whether to fit a bias term.
             verbose: Whether to log fit details.
@@ -167,7 +167,7 @@ class FeatureBradleyTerry:
             "Fitting Bradley-Terry model: %d samples (ties removed), %d features, "
             "C=%.2f (lambda=%.4f), tie_epsilon=%.3f",
             n,
-            self.k,
+            self.num_criteria,
             C,
             self.regularization,
             self.tie_epsilon,
@@ -175,7 +175,7 @@ class FeatureBradleyTerry:
 
         if n < 2:
             logger.warning("Too few samples (%d) to fit BT model. Using uniform weights.", n)
-            self.weights = np.ones(self.k) / max(self.k, 1)
+            self.weights = np.ones(self.num_criteria) / max(self.num_criteria, 1)
             self.intercept = 0.0
             self._model = None
             return self
@@ -215,7 +215,7 @@ class FeatureBradleyTerry:
             self.intercept = 0.0
         else:
             logger.warning("Cannot extract weights from estimator %s", type(self._model))
-            self.weights = np.zeros(self.k, dtype=float)
+            self.weights = np.zeros(self.num_criteria, dtype=float)
             self.intercept = 0.0
 
         if verbose:
@@ -258,7 +258,7 @@ class FeatureBradleyTerry:
         return (proba >= threshold).astype(int)
 
     def weight_dict(self) -> dict[str, float]:
-        """Return weights as ``{dimension_name: weight}``."""
+        """Return weights as ``{criterion_name: weight}``."""
         if self.weights is None:
             return {}
-        return {name: float(self.weights[i]) for i, name in enumerate(self.dimension_names)}
+        return {name: float(self.weights[i]) for i, name in enumerate(self.criterion_names)}

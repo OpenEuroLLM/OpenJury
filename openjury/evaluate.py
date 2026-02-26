@@ -99,6 +99,9 @@ def evaluate_completions(
     criteria_name: str = "default",
     criteria_file: str | None = None,
     criteria_swap_to_debias: bool = False,
+    fit_bradley_terry: bool = False,
+    bt_regularization: float = 0.01,
+    bt_tie_epsilon: float = 0.05,
 ):
     """
     :param dataset:
@@ -199,7 +202,8 @@ def evaluate_completions(
     if enable_criteria:
         print(
             f"Running criteria pairwise scoring with criteria '{criteria_file if criteria_file is not None else criteria_name}' "
-            f"(swap debiasing={'on' if criteria_swap_to_debias else 'off'})."
+            f"(swap debiasing={'on' if criteria_swap_to_debias else 'off'}, "
+            f"bt={'on' if fit_bradley_terry else 'off'})."
         )
         try:
             eval_instruction_index = instructions.index.tolist()
@@ -221,6 +225,9 @@ def evaluate_completions(
                 criteria_name=criteria_name,
                 criteria_file=criteria_file,
                 swap_to_debias=criteria_swap_to_debias,
+                fit_bradley_terry=fit_bradley_terry,
+                bt_regularization=bt_regularization,
+                bt_tie_epsilon=bt_tie_epsilon,
                 summary_fields={
                     "dataset": dataset,
                     "method_A": method_A,

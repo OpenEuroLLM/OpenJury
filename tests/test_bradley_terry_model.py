@@ -27,17 +27,18 @@ def _synthetic_bt_data():
 
 def test_invalid_tie_epsilon_raises():
     with pytest.raises(ValueError):
-        FeatureBradleyTerry(dimension_names=["x"], tie_epsilon=0.5)
+        FeatureBradleyTerry(criterion_names=["x"], tie_epsilon=0.5)
 
 
 def test_fit_learns_weights_on_synthetic_data():
     scores_A, scores_B, preferences = _synthetic_bt_data()
-    bt = FeatureBradleyTerry(dimension_names=["adherence", "clarity"])
+    bt = FeatureBradleyTerry(criterion_names=["adherence", "clarity"])
 
     bt.fit(scores_A, scores_B, preferences, verbose=False)
 
     assert bt.weights is not None
     assert len(bt.weights) == 2
+    assert bt.num_criteria == 2
     assert bt._model is not None
     assert set(bt.weight_dict().keys()) == {"adherence", "clarity"}
 
@@ -47,10 +48,10 @@ def test_tie_epsilon_filters_near_ties():
     preferences = pd.Series([0.0, 0.49, 0.5, 0.51, 1.0, 1.0])
 
     bt_strict = FeatureBradleyTerry(
-        dimension_names=["adherence", "clarity"], tie_epsilon=0.0
+        criterion_names=["adherence", "clarity"], tie_epsilon=0.0
     )
     bt_loose = FeatureBradleyTerry(
-        dimension_names=["adherence", "clarity"], tie_epsilon=0.05
+        criterion_names=["adherence", "clarity"], tie_epsilon=0.05
     )
 
     _, _, y_strict = bt_strict._prepare_data(scores_A, scores_B, preferences)
@@ -62,7 +63,7 @@ def test_tie_epsilon_filters_near_ties():
 
 def test_fit_kwargs_forwarded_to_default_estimator():
     scores_A, scores_B, preferences = _synthetic_bt_data()
-    bt = FeatureBradleyTerry(dimension_names=["adherence", "clarity"])
+    bt = FeatureBradleyTerry(criterion_names=["adherence", "clarity"])
 
     bt.fit(scores_A, scores_B, preferences, verbose=False, max_iter=37)
 
@@ -72,7 +73,7 @@ def test_fit_kwargs_forwarded_to_default_estimator():
 
 def test_predict_proba_shape_and_range():
     scores_A, scores_B, preferences = _synthetic_bt_data()
-    bt = FeatureBradleyTerry(dimension_names=["adherence", "clarity"])
+    bt = FeatureBradleyTerry(criterion_names=["adherence", "clarity"])
     bt.fit(scores_A, scores_B, preferences, verbose=False)
 
     proba = bt.predict_proba(scores_A, scores_B)
@@ -85,7 +86,7 @@ def test_too_few_samples_falls_back_to_uniform_weights():
     scores_B = pd.DataFrame({"adherence": [3.0], "clarity": [3.0]})
     preferences = pd.Series([0.0])
 
-    bt = FeatureBradleyTerry(dimension_names=["adherence", "clarity"])
+    bt = FeatureBradleyTerry(criterion_names=["adherence", "clarity"])
     bt.fit(scores_A, scores_B, preferences, verbose=False)
 
     assert bt.weights is not None

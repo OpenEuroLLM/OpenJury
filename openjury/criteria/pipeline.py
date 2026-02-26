@@ -48,6 +48,9 @@ def run_pairwise_criteria_pipeline(
     criteria_name: str = "default",
     criteria_file: str | Path | None = None,
     swap_to_debias: bool = False,
+    fit_bradley_terry: bool = False,
+    bt_regularization: float = 0.01,
+    bt_tie_epsilon: float = 0.05,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run pairwise criteria scoring and save outputs."""
@@ -91,22 +94,57 @@ def run_pairwise_criteria_pipeline(
             "raw_judge_output": r.raw_judge_output,
             "raw_judge_output_swapped": r.raw_judge_output_swapped,
         }
-        for dim_name, value in r.scores_A.items():
-            row[f"A_{dim_name}"] = value
-        for dim_name, value in r.scores_B.items():
-            row[f"B_{dim_name}"] = value
+        for criterion_name, value in r.scores_A.items():
+            row[f"A_{criterion_name}"] = value
+        for criterion_name, value in r.scores_B.items():
+            row[f"B_{criterion_name}"] = value
         pairwise_rows.append(row)
     pd.DataFrame(pairwise_rows).to_csv(output_folder / f"{prefix_base}-pairwise.csv", index=False)
+
+    bt_result: dict[str, Any] | None = None
+    if fit_bradley_terry:
+        try:
+            from openjury.bradley_terry import FeatureBradleyTerry
+        except Exception as e:  # pragma: no cover - import error depends on optional deps
+            raise RuntimeError(
+                "Bradley-Terry fitting requires the optional 'sklearn' dependency. "
+                "Install with `uv sync --extra sklearn` or `pip install -e '.[sklearn]'`."
+            ) from e
+
+        bt_model = FeatureBradleyTerry(
+            criterion_names=criteria.criterion_names,
+            regularization=bt_regularization,
+            tie_epsilon=bt_tie_epsilon,
+        )
+        bt_model.fit(
+            scores_A=df_A,
+            scores_B=df_B,
+            preferences=prefs,
+            verbose=False,
+        )
+
+        bt_result = {
+            "criterion_names": criteria.criterion_names,
+            "weights": bt_model.weight_dict(),
+            "intercept": float(bt_model.intercept),
+            "regularization": float(bt_regularization),
+            "tie_epsilon": float(bt_tie_epsilon),
+        }
+        with open(output_folder / f"{prefix_base}-bt-weights.json", "w") as f:
+            json.dump(bt_result, f, indent=2)
 
     summary = {
         **(summary_fields or {}),
         "criteria_name": criteria.name,
         "criterion_names": criteria.criterion_names,
         "swap_debiasing": swap_to_debias,
+        "fit_bradley_terry": fit_bradley_terry,
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
     }
+    if bt_result is not None:
+        summary["bt_weights_file"] = f"{prefix_base}-bt-weights.json"
 
     with open(output_folder / f"{prefix_base}-summary.json", "w") as f:
         json.dump(summary, f, indent=2)
@@ -118,4 +156,5 @@ def run_pairwise_criteria_pipeline(
         "scores_A": df_A,
         "scores_B": df_B,
         "preferences": prefs,
+        "bt_result": bt_result,
     }
