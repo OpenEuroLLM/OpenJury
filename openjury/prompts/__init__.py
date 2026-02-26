@@ -13,13 +13,11 @@ here for backward compatibility and migration reference.
 
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 
 _PROMPTS_DIR = Path(__file__).resolve().parent
 
 
-@lru_cache(maxsize=None)
 def load_prompt(name: str) -> str:
     """Load a prompt template by stem name (without ``.txt`` extension).
 
