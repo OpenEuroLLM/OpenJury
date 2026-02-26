@@ -1,4 +1,4 @@
-"""Shared pairwise rubric scoring pipeline helpers."""
+"""Shared pairwise criteria scoring pipeline helpers."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any
 
 import pandas as pd
 
-from openjury.rubrics.io import resolve_rubric
-from openjury.rubrics.scorer import RubricScorer
+from openjury.criteria.io import resolve_criteria
+from openjury.criteria.scorer import CriteriaScorer
 
 
 def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
@@ -32,7 +32,7 @@ def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
     }
 
 
-def run_pairwise_rubric_pipeline(
+def run_pairwise_criteria_pipeline(
     *,
     output_folder: str | Path,
     output_prefix: str,
@@ -45,19 +45,19 @@ def run_pairwise_rubric_pipeline(
     model_B_name: str,
     provide_explanation: bool = False,
     use_tqdm: bool = False,
-    rubric_name: str = "default",
-    rubric_file: str | Path | None = None,
+    criteria_name: str = "default",
+    criteria_file: str | Path | None = None,
     swap_to_debias: bool = False,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run pairwise rubric scoring and save outputs."""
+    """Run pairwise criteria scoring and save outputs."""
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    rubric = resolve_rubric(rubric_name=rubric_name, rubric_file=rubric_file)
-    scorer = RubricScorer(
+    criteria = resolve_criteria(criteria_name=criteria_name, criteria_file=criteria_file)
+    scorer = CriteriaScorer(
         judge_model=judge_model,
-        rubric=rubric,
+        criteria=criteria,
         provide_explanation=provide_explanation,
         mode="pairwise",
     )
@@ -76,7 +76,7 @@ def run_pairwise_rubric_pipeline(
     df_A.loc[:, "instruction_index"] = instruction_index
     df_B.loc[:, "instruction_index"] = instruction_index
 
-    prefix_base = f"{output_prefix}-rubric-{rubric.name}" if output_prefix else f"rubric-{rubric.name}"
+    prefix_base = f"{output_prefix}-criteria-{criteria.name}" if output_prefix else f"criteria-{criteria.name}"
     df_A.to_csv(output_folder / f"{prefix_base}-scores-A.csv", index=False)
     df_B.to_csv(output_folder / f"{prefix_base}-scores-B.csv", index=False)
     pd.DataFrame(
@@ -100,8 +100,8 @@ def run_pairwise_rubric_pipeline(
 
     summary = {
         **(summary_fields or {}),
-        "rubric_name": rubric.name,
-        "rubric_dimensions": rubric.criterion_names,
+        "criteria_name": criteria.name,
+        "criterion_names": criteria.criterion_names,
         "swap_debiasing": swap_to_debias,
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),
@@ -112,7 +112,7 @@ def run_pairwise_rubric_pipeline(
         json.dump(summary, f, indent=2)
 
     return {
-        "rubric": rubric,
+        "criteria": criteria,
         "summary": summary,
         "prefix": prefix_base,
         "scores_A": df_A,

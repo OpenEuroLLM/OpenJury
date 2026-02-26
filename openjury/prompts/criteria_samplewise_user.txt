@@ -6,4 +6,4 @@
 ## Completion
 {completion}
 
-Please score this completion on each dimension and return the JSON scores.
+Please score this completion on each criterion and return the JSON scores.

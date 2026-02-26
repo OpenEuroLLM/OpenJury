@@ -1,14 +1,14 @@
-"""Default rubric definitions and registry.
+"""Default criteria-set definitions and registry.
 
-Ships with one built-in rubric:
+Ships with one built-in criteria set:
     - **default**: General-purpose instruction-following evaluation
 
-Custom rubrics can be registered at runtime or loaded from JSON.
+Custom criteria sets can be registered at runtime or loaded from JSON.
 """
 
 from __future__ import annotations
 
-from openjury.rubrics.schema import Criterion, Rubric
+from openjury.criteria.schema import Criterion, Criteria
 
 
 # ── Default Criteria ────────────────────────────────────────────────
@@ -112,45 +112,42 @@ DEFAULT_CRITERIA = [
     ),
 ]
 
-DEFAULT_RUBRIC = Rubric(
+DEFAULT_CRITERIA_SET = Criteria(
     name="default",
     criteria=DEFAULT_CRITERIA,
-    description="General-purpose rubric for instruction-following evaluation.",
+    description="General-purpose criteria for instruction-following evaluation.",
 )
-
-# Compatibility alias for older imports/call sites.
-DEFAULT_DIMENSIONS = DEFAULT_CRITERIA
 
 
 # ── Registry ────────────────────────────────────────────────────────
 
-RUBRIC_REGISTRY: dict[str, Rubric] = {
-    "default": DEFAULT_RUBRIC,
+CRITERIA_REGISTRY: dict[str, Criteria] = {
+    "default": DEFAULT_CRITERIA_SET,
 }
 
 
-def get_rubric(name: str) -> Rubric:
-    """Look up a rubric by name.
+def get_criteria(name: str) -> Criteria:
+    """Look up a criteria set by name.
 
     Args:
-        name: Rubric identifier (e.g. "default").
+        name: Criteria-set identifier (e.g. "default").
 
     Returns:
-        The Rubric object.
+        The Criteria object.
 
     Raises:
-        KeyError: If the rubric name is not registered.
+        KeyError: If the criteria-set name is not registered.
     """
-    if name not in RUBRIC_REGISTRY:
-        available = ", ".join(sorted(RUBRIC_REGISTRY.keys()))
-        raise KeyError(f"Unknown rubric '{name}'. Available: {available}")
-    return RUBRIC_REGISTRY[name]
+    if name not in CRITERIA_REGISTRY:
+        available = ", ".join(sorted(CRITERIA_REGISTRY.keys()))
+        raise KeyError(f"Unknown criteria '{name}'. Available: {available}")
+    return CRITERIA_REGISTRY[name]
 
 
-def register_rubric(rubric: Rubric) -> None:
-    """Register a custom rubric so it can be looked up by name.
+def register_criteria(criteria: Criteria) -> None:
+    """Register a custom criteria set so it can be looked up by name.
 
     Args:
-        rubric: Rubric object with a unique ``name`` attribute.
+        criteria: Criteria object with a unique ``name`` attribute.
     """
-    RUBRIC_REGISTRY[rubric.name] = rubric
+    CRITERIA_REGISTRY[criteria.name] = criteria

@@ -4,10 +4,10 @@ All ``.txt`` files under ``openjury/prompts/`` are discoverable by stem name::
 
     from openjury.prompts import load_prompt
 
-    system = load_prompt("rubric_pairwise_system")    # reads rubric_pairwise_system.txt
-    user   = load_prompt("rubric_pairwise_user")      # reads rubric_pairwise_user.txt
+    system = load_prompt("criteria_pairwise_system")    # reads criteria_pairwise_system.txt
+    user   = load_prompt("criteria_pairwise_user")      # reads criteria_pairwise_user.txt
 
-Legacy templates from the pre-rubric pairwise scorer are also discoverable
+Legacy templates from the pre-criteria pairwise scorer are also discoverable
 here for backward compatibility and migration reference.
 """
 
