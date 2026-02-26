@@ -4,7 +4,8 @@ import pytest
 
 import openjury.rubrics.scorer as scorer_module
 from openjury.rubrics.defaults import get_rubric
-from openjury.rubrics.schema import Rubric, RubricDimension
+from openjury.rubrics.io import load_rubric_from_json
+from openjury.rubrics.schema import Criterion, Rubric, RubricDimension
 from openjury.rubrics.scorer import (
     RubricScorer,
     _build_example_json_strings,
@@ -46,16 +47,82 @@ def fake_prompt_loader(monkeypatch):
 def test_get_default_rubric():
     rubric = get_rubric("default")
     assert rubric.name == "default"
-    assert len(rubric.dimensions) > 0
+    assert len(rubric.criteria) > 0
+    assert rubric.dimensions == rubric.criteria
+    assert rubric.dimension_names == rubric.criterion_names
+    assert rubric.k == rubric.num_criteria
 
 
-def test_build_example_scores_uses_dimension_names_and_clamps_to_scale():
+def test_schema_compat_aliases():
+    assert RubricDimension is Criterion
+
     rubric = Rubric(
         name="toy",
-        dimensions=[
-            RubricDimension(name="tiny", description="tiny scale", scale_min=0, scale_max=2),
-            RubricDimension(name="tight", description="tight scale", scale_min=8, scale_max=9),
-            RubricDimension(name="wide", description="wide scale", scale_min=1, scale_max=10),
+        criteria=[
+            Criterion(name="c1", description="criterion 1"),
+            Criterion(name="c2", description="criterion 2"),
+        ],
+    )
+    assert [c.name for c in rubric.criteria] == ["c1", "c2"]
+    assert [c.name for c in rubric.dimensions] == ["c1", "c2"]
+    assert rubric.criterion_names == ["c1", "c2"]
+    assert rubric.dimension_names == ["c1", "c2"]
+    assert rubric.num_criteria == 2
+    assert rubric.k == 2
+
+
+def test_rubric_accepts_legacy_dimensions_keyword():
+    rubric = Rubric(
+        name="legacy",
+        dimensions=[Criterion(name="overall", description="Overall quality")],
+    )
+    assert rubric.criterion_names == ["overall"]
+
+
+def test_load_rubric_from_json_supports_legacy_dimensions_key(tmp_path):
+    path = tmp_path / "legacy_dimensions.json"
+    path.write_text(
+        json.dumps(
+            {
+                "name": "legacy_dims",
+                "dimensions": [
+                    {"name": "overall", "description": "Overall quality"},
+                ],
+            }
+        )
+    )
+
+    rubric = load_rubric_from_json(path)
+    assert rubric.name == "legacy_dims"
+    assert rubric.criterion_names == ["overall"]
+
+
+def test_load_rubric_from_json_supports_criteria_key(tmp_path):
+    path = tmp_path / "criteria.json"
+    path.write_text(
+        json.dumps(
+            {
+                "name": "criteria_rubric",
+                "criteria": [
+                    {"name": "clarity", "description": "Clarity"},
+                    {"name": "correctness", "description": "Correctness"},
+                ],
+            }
+        )
+    )
+
+    rubric = load_rubric_from_json(path)
+    assert rubric.name == "criteria_rubric"
+    assert rubric.criterion_names == ["clarity", "correctness"]
+
+
+def test_build_example_scores_uses_criterion_names_and_clamps_to_scale():
+    rubric = Rubric(
+        name="toy",
+        criteria=[
+            Criterion(name="tiny", description="tiny scale", scale_min=0, scale_max=2),
+            Criterion(name="tight", description="tight scale", scale_min=8, scale_max=9),
+            Criterion(name="wide", description="wide scale", scale_min=1, scale_max=10),
         ],
     )
 
@@ -75,9 +142,9 @@ def test_build_example_scores_uses_dimension_names_and_clamps_to_scale():
 def test_build_example_json_strings_pairwise_shape():
     rubric = Rubric(
         name="toy",
-        dimensions=[
-            RubricDimension(name="overall", description="overall quality"),
-            RubricDimension(name="clarity", description="clarity"),
+        criteria=[
+            Criterion(name="overall", description="overall quality"),
+            Criterion(name="clarity", description="clarity"),
         ],
     )
 

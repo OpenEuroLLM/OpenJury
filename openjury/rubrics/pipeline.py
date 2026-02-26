@@ -101,7 +101,7 @@ def run_pairwise_rubric_pipeline(
     summary = {
         **(summary_fields or {}),
         "rubric_name": rubric.name,
-        "rubric_dimensions": rubric.dimension_names,
+        "rubric_dimensions": rubric.criterion_names,
         "swap_debiasing": swap_to_debias,
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),

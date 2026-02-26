@@ -6,14 +6,19 @@ import json
 from pathlib import Path
 
 from openjury.rubrics.defaults import get_rubric, register_rubric
-from openjury.rubrics.schema import Rubric, RubricDimension
+from openjury.rubrics.schema import Criterion, Rubric
 
 
 def load_rubric_from_json(path: str | Path) -> Rubric:
-    """Load a rubric definition from a JSON file."""
+    """Load a rubric definition from a JSON file.
+
+    Supports both the preferred ``"criteria"`` key and the legacy
+    ``"dimensions"`` key (for backward compatibility).
+    """
     data = json.loads(Path(path).read_text())
-    dimensions = [
-        RubricDimension(
+    criteria_data = data.get("criteria", data["dimensions"])
+    criteria = [
+        Criterion(
             name=d["name"],
             description=d["description"],
             scale_min=d.get("scale_min", 1),
@@ -21,11 +26,11 @@ def load_rubric_from_json(path: str | Path) -> Rubric:
             weight=d.get("weight", 1.0),
             score_references=d.get("score_references", {}),
         )
-        for d in data["dimensions"]
+        for d in criteria_data
     ]
     return Rubric(
         name=data["name"],
-        dimensions=dimensions,
+        criteria=criteria,
         description=data.get("description", ""),
     )
 

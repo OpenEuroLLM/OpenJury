@@ -1,6 +1,6 @@
 """Schema for multi-criteria rubric evaluation.
 
-Defines the data structures for rubric dimensions, complete rubrics,
+Defines the data structures for rubric criteria, complete rubrics,
 and per-completion rubric scores.
 """
 
@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class RubricDimension:
-    """A single scoring dimension in a rubric.
+class Criterion:
+    """A single scoring criterion in a rubric.
 
     Attributes:
         name: Short identifier (e.g. "fluency", "usefulness").
@@ -50,7 +50,7 @@ class RubricDimension:
         self.score_references = normalized
 
     def prompt_block(self) -> str:
-        """Render this dimension as a scoring instruction for the judge."""
+        """Render this criterion as a scoring instruction for the judge."""
         base = (
             f"**{self.name.title()}** ({self.scale_min}–{self.scale_max}): "
             f"{self.description}"
@@ -65,45 +65,91 @@ class RubricDimension:
         return f"{base}\n   Score references:\n{refs}"
 
 
-@dataclass
+RubricDimension = Criterion
+
+
+@dataclass(init=False)
 class Rubric:
-    """A collection of scoring dimensions forming a complete rubric.
+    """A collection of scoring criteria forming a complete rubric.
 
     Attributes:
-        name: Rubric identifier (e.g. "default", "coding", "translation").
-        dimensions: List of scoring dimensions.
+        name: Rubric identifier (e.g. "default", "my_custom").
+        criteria: List of scoring criteria.
         description: Optional description of when to use this rubric.
     """
 
     name: str
-    dimensions: list[RubricDimension]
+    criteria: list[Criterion]
     description: str = ""
+
+    def __init__(
+        self,
+        name: str,
+        criteria: list[Criterion] | None = None,
+        description: str = "",
+        dimensions: list[Criterion] | None = None,
+    ) -> None:
+        """Create a rubric.
+
+        ``criteria`` is the preferred argument name. ``dimensions`` is kept as a
+        compatibility alias for older call sites.
+        """
+        if criteria is not None and dimensions is not None:
+            raise TypeError(
+                "Pass either 'criteria' (preferred) or legacy 'dimensions', not both."
+            )
+
+        resolved_criteria = criteria if criteria is not None else dimensions
+        if resolved_criteria is None:
+            raise TypeError(
+                "Rubric requires 'criteria' (preferred) or legacy 'dimensions'."
+            )
+
+        self.name = name
+        self.criteria = resolved_criteria
+        self.description = description
+
+    @property
+    def dimensions(self) -> list[Criterion]:
+        """Compatibility alias for ``criteria``."""
+        return self.criteria
+
+    @property
+    def criterion_names(self) -> list[str]:
+        """Names of all rubric criteria in order."""
+        return [c.name for c in self.criteria]
 
     @property
     def dimension_names(self) -> list[str]:
-        return [d.name for d in self.dimensions]
+        """Compatibility alias for ``criterion_names``."""
+        return self.criterion_names
+
+    @property
+    def num_criteria(self) -> int:
+        """Number of criteria."""
+        return len(self.criteria)
 
     @property
     def k(self) -> int:
-        """Number of dimensions."""
-        return len(self.dimensions)
+        """Compatibility alias for ``num_criteria``."""
+        return self.num_criteria
 
     def prompt_block(self) -> str:
         """Render the full rubric as scoring instructions."""
         lines = ["Score the following completion on each dimension:\n"]
-        for i, dim in enumerate(self.dimensions, 1):
+        for i, dim in enumerate(self.criteria, 1):
             lines.append(f"{i}. {dim.prompt_block()}")
         return "\n".join(lines)
 
 
 @dataclass
 class RubricScore:
-    """Scores for a single (instruction, completion) pair across all dimensions.
+    """Scores for a single (instruction, completion) pair across all criteria.
 
     Attributes:
         instruction_index: Index linking back to the instruction.
         model: Model that generated the completion.
-        scores: Dict mapping dimension name → score.
+        scores: Dict mapping criterion name → score.
         raw_judge_output: Raw text from the judge (for debugging).
     """
 
@@ -112,9 +158,9 @@ class RubricScore:
     scores: dict[str, float]
     raw_judge_output: str = ""
 
-    def to_list(self, dimension_names: list[str]) -> list[float]:
-        """Return scores as an ordered vector matching dimension_names."""
-        return [self.scores.get(name, 0.0) for name in dimension_names]
+    def to_list(self, criterion_names: list[str]) -> list[float]:
+        """Return scores as an ordered vector matching criterion_names."""
+        return [self.scores.get(name, 0.0) for name in criterion_names]
 
 
 @dataclass
@@ -122,12 +168,12 @@ class PairwiseRubricResult:
     """Result of a pairwise rubric comparison: both A and B scored in one call.
 
     The judge sees both completions side-by-side, scores each on every rubric
-    dimension, and gives an overall preference.
+    criterion, and gives an overall preference.
 
     Attributes:
         instruction_index: Index linking back to the instruction.
-        scores_A: Dict mapping dimension name → score for completion A.
-        scores_B: Dict mapping dimension name → score for completion B.
+        scores_A: Dict mapping criterion name → score for completion A.
+        scores_B: Dict mapping criterion name → score for completion B.
         preference: Overall preference from the judge: 0.0 = A wins,
             0.5 = tie, 1.0 = B wins.
         raw_judge_output: Raw text from the judge (for debugging).

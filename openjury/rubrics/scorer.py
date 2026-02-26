@@ -1,12 +1,12 @@
-"""Score completions on rubric dimensions using an LLM judge.
+"""Score completions on rubric criteria using an LLM judge.
 
 Supports two modes:
 
 - **Pairwise** (default): Judge sees both A and B side-by-side, scores each
-  on rubric dimensions, then gives an overall preference. N calls (2N with
+  on rubric criteria, then gives an overall preference. N calls (2N with
   swap-debiasing). Best for ranking.
 - **Sample-wise**: Judge scores each completion independently (2N calls).
-  Preferences are derived from the weighted average of rubric dimension
+  Preferences are derived from the weighted average of rubric criterion
   scores — no extra judge call. Optionally uses a reference answer as an
   anchor. Best for absolute quality assessment.
 
@@ -68,9 +68,9 @@ def _build_example_scores(
     rubric: Rubric,
     decrement: int = 0,
 ) -> dict[str, int]:
-    """Build deterministic example scores using the rubric's dimension names."""
+    """Build deterministic example scores using the rubric's criterion names."""
     scores: dict[str, int] = {}
-    for i, dim in enumerate(rubric.dimensions):
+    for i, dim in enumerate(rubric.criteria):
         base = _EXAMPLE_SCORE_SEED[i % len(_EXAMPLE_SCORE_SEED)] - decrement
         scores[dim.name] = min(dim.scale_max, max(dim.scale_min, base))
     return scores
@@ -89,7 +89,7 @@ def _build_example_json_strings(rubric: Rubric) -> tuple[str, str]:
 
 
 class RubricScorer:
-    """Scores completions along rubric dimensions using an LLM judge.
+    """Scores completions along rubric criteria using an LLM judge.
 
     Supports pairwise (A vs B) and sample-wise (independent) scoring.
 
@@ -195,17 +195,17 @@ class RubricScorer:
     def _normalize_score_keys(
         self, scores: dict[str, float],
     ) -> dict[str, float]:
-        """Map parsed score keys back to canonical rubric dimension names.
+        """Map parsed score keys back to canonical rubric criterion names.
 
-        The judge prompt renders dimensions via ``prompt_block()`` which
+        The judge prompt renders criteria via ``prompt_block()`` which
         applies ``.title()`` casing (e.g. ``Instruction_Adherence``).  The
         model's JSON output therefore typically uses title-cased keys,
         but all downstream code (preference derivation, weighted
         averaging, DataFrame columns) expects the canonical lowercase
-        names (``instruction_adherence``).  This method performs a
+        names (``instruction_adherence``). This method performs a
         case-insensitive mapping to reconcile the two.
         """
-        lookup = {d.lower(): d for d in self.rubric.dimension_names}
+        lookup = {d.lower(): d for d in self.rubric.criterion_names}
         return {
             lookup.get(k.lower(), k): v
             for k, v in scores.items()
@@ -224,9 +224,9 @@ class RubricScorer:
         use_tqdm: bool = False,
         force_async: bool = False,
     ) -> list[PairwiseRubricResult]:
-        """Compare A vs B on rubric dimensions in a single judge call.
+        """Compare A vs B on rubric criteria in a single judge call.
 
-        The judge sees both completions, scores each on every dimension,
+        The judge sees both completions, scores each on every criterion,
         and states an overall preference. If ``swap_to_debias=True``, runs
         each pair twice (A/B then B/A) and averages to cancel position bias.
 
@@ -255,8 +255,8 @@ class RubricScorer:
         )
 
         logger.info(
-            "Pairwise rubric scoring: %d pairs on %d dimensions (A/B order)",
-            n, self.rubric.k,
+            "Pairwise rubric scoring: %d pairs on %d criteria (A/B order)",
+            n, self.rubric.num_criteria,
         )
         raw_ab = do_inference(
             chat_model=self.judge_model,
@@ -273,8 +273,8 @@ class RubricScorer:
                 completions_B=completions_A,  # SWAPPED
             )
             logger.info(
-                "Pairwise rubric scoring: %d pairs on %d dimensions (B/A debiasing)",
-                n, self.rubric.k,
+                "Pairwise rubric scoring: %d pairs on %d criteria (B/A debiasing)",
+                n, self.rubric.num_criteria,
             )
             raw_ba = do_inference(
                 chat_model=self.judge_model,
@@ -341,7 +341,7 @@ class RubricScorer:
         Returns:
             Dict with keys: scores_A, scores_B (dicts), preference (float).
         """
-        nan_scores = {dim: float("nan") for dim in self.rubric.dimension_names}
+        nan_scores = {dim: float("nan") for dim in self.rubric.criterion_names}
         default = {"scores_A": nan_scores.copy(), "scores_B": nan_scores.copy(), "preference": 0.5}
 
         # Try ```json ... ``` blocks
@@ -364,7 +364,7 @@ class RubricScorer:
 
         # Last resort: try regex for individual score patterns
         scores_a, scores_b = {}, {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.rubric.criterion_names:
             # Look for patterns like scores_A.fluency: 4 or "A": {"fluency": 4}
             match_a = re.search(
                 rf'(?:scores?_?A|completion_?A).*?{re.escape(dim)}.*?(\d+(?:\.\d+)?)',
@@ -386,7 +386,7 @@ class RubricScorer:
             pref = 0.0 if p == "A" else 1.0 if p == "B" else 0.5
 
         if scores_a or scores_b:
-            for dim in self.rubric.dimension_names:
+            for dim in self.rubric.criterion_names:
                 scores_a.setdefault(dim, float("nan"))
                 scores_b.setdefault(dim, float("nan"))
             return {"scores_A": scores_a, "scores_B": scores_b, "preference": pref}
@@ -420,7 +420,7 @@ class RubricScorer:
         actually B, and vice versa. So we flip them back before averaging.
         """
         merged_A, merged_B = {}, {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.rubric.criterion_names:
             # ab: scores_A = actual A, scores_B = actual B
             # ba: scores_A = actual B (swapped), scores_B = actual A (swapped)
             a_from_ab = ab["scores_A"].get(dim, float("nan"))
@@ -471,7 +471,7 @@ class RubricScorer:
         return prompts
 
     def  _parse_scores(self, raw_output: str) -> dict[str, float]:
-        """Extract dimension scores from judge output.
+        """Extract criterion scores from judge output.
 
         Tries to find JSON in ```json``` blocks first, then falls back to
         finding any JSON object in the text, and finally to key: value patterns.
@@ -480,7 +480,7 @@ class RubricScorer:
             raw_output: Raw text output from the judge.
 
         Returns:
-            Dict mapping dimension name → score. NaN for unparseable scores.
+            Dict mapping criterion name → score. NaN for unparseable scores.
         """
         # Try ```json ... ``` blocks
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw_output, re.DOTALL)
@@ -506,7 +506,7 @@ class RubricScorer:
 
         # Last resort: try to parse key: value patterns
         scores = {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.rubric.criterion_names:
             pattern = rf'["\']?{re.escape(dim)}["\']?\s*[:=]\s*(\d+(?:\.\d+)?)'
             match = re.search(pattern, raw_output, re.IGNORECASE)
             if match:
@@ -519,7 +519,7 @@ class RubricScorer:
             "Could not parse rubric scores from judge output: %s",
             raw_output[:200],
         )
-        return {dim: float("nan") for dim in self.rubric.dimension_names}
+        return {dim: float("nan") for dim in self.rubric.criterion_names}
 
     def score(
         self,
@@ -566,8 +566,8 @@ class RubricScorer:
 
         mode_label = "sample-wise (with reference)" if reference_answers else "sample-wise"
         logger.info(
-            "Scoring %d completions from [model]%s[/model] on %d rubric dimensions (%s)",
-            len(prompts), model_name, self.rubric.k, mode_label,
+            "Scoring %d completions from [model]%s[/model] on %d rubric criteria (%s)",
+            len(prompts), model_name, self.rubric.num_criteria, mode_label,
         )
 
         raw_outputs = do_inference(
@@ -612,7 +612,7 @@ class RubricScorer:
     ) -> pd.DataFrame:
         """Convert rubric scores to a DataFrame.
 
-        Columns: instruction_index, model, dim1, dim2, ..., dimK, raw_judge_output.
+        Columns: instruction_index, model, criterion_1, criterion_2, ..., raw_judge_output.
         """
         rows = []
         for rs in rubric_scores:
@@ -664,10 +664,10 @@ class RubricScorer:
         """Convert samplewise scores to DataFrames and derive preferences.
 
         Preferences are computed from the **weighted average** of rubric
-        dimension scores — no extra judge call required.  For each
+        criterion scores — no extra judge call required. For each
         instruction, if weighted-avg(A) > weighted-avg(B) → 0.0 (A wins),
         < → 1.0 (B wins), equal → 0.5 (tie).  Weights come from
-        ``RubricDimension.weight`` (all 1.0 by default, i.e. plain mean).
+        ``Criterion.weight`` (all 1.0 by default, i.e. plain mean).
 
         Returns:
             (df_scores_A, df_scores_B, preferences)
@@ -675,7 +675,7 @@ class RubricScorer:
         df_A = self.score_to_dataframe(scores_A)
         df_B = self.score_to_dataframe(scores_B)
 
-        weights = {d.name: d.weight for d in self.rubric.dimensions}
+        weights = {d.name: d.weight for d in self.rubric.criteria}
 
         prefs: list[float] = []
         for sa, sb in zip(scores_A, scores_B):
@@ -709,7 +709,7 @@ class RubricScorer:
         scores: dict[str, float],
         weights: dict[str, float],
     ) -> float:
-        """Weighted average of rubric scores, skipping NaN dimensions."""
+        """Weighted average of rubric scores, skipping NaN criteria."""
         total_w = 0.0
         total_s = 0.0
         for dim, w in weights.items():

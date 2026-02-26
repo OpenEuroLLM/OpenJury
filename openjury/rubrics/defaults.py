@@ -8,10 +8,10 @@ Custom rubrics can be registered at runtime or loaded from JSON.
 
 from __future__ import annotations
 
-from openjury.rubrics.schema import Rubric, RubricDimension
+from openjury.rubrics.schema import Criterion, Rubric
 
 
-# ── Default Dimensions ──────────────────────────────────────────────
+# ── Default Criteria ────────────────────────────────────────────────
 
 
 def _refs(
@@ -28,8 +28,8 @@ def _refs(
         1: s1,
     }
 
-DEFAULT_DIMENSIONS = [
-    RubricDimension(
+DEFAULT_CRITERIA = [
+    Criterion(
         name="adherence",
         description=(
             "Follows the user's instructions and constraints precisely: required format, scope, "
@@ -43,7 +43,7 @@ DEFAULT_DIMENSIONS = [
             "Does not follow the user's request in any meaningful way.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="helpfulness",
         description=(
             "Advances the user's goal with relevant, actionable content. Provides useful steps, "
@@ -57,7 +57,7 @@ DEFAULT_DIMENSIONS = [
             "Unhelpful or non-responsive to the user's goal.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="factuality",
         description=(
             "Information is correct and appropriately qualified. Avoids hallucinations and "
@@ -71,7 +71,7 @@ DEFAULT_DIMENSIONS = [
             "Largely incorrect, fabricated, or misleading.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="completeness",
         description=(
             "Covers the key aspects of the request without major omissions. Addresses all "
@@ -84,7 +84,7 @@ DEFAULT_DIMENSIONS = [
             "Fails to address the requested task in a complete or usable way.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="clarity",
         description=(
             "Well-organized, easy to follow, and unambiguous. Uses logical structure, headings/"
@@ -97,7 +97,7 @@ DEFAULT_DIMENSIONS = [
             "Confusing, disorganized, or difficult to understand.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="fluency",
         description=(
             "Language and presentation quality: fluent, readable, appropriately concise, and "
@@ -114,9 +114,12 @@ DEFAULT_DIMENSIONS = [
 
 DEFAULT_RUBRIC = Rubric(
     name="default",
-    dimensions=DEFAULT_DIMENSIONS,
+    criteria=DEFAULT_CRITERIA,
     description="General-purpose rubric for instruction-following evaluation.",
 )
+
+# Compatibility alias for older imports/call sites.
+DEFAULT_DIMENSIONS = DEFAULT_CRITERIA
 
 
 # ── Registry ────────────────────────────────────────────────────────
