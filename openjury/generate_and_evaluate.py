@@ -17,7 +17,7 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
-from openjury.rubrics.pipeline import run_pairwise_rubric_pipeline
+from openjury.criteria.pipeline import run_pairwise_criteria_pipeline
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -76,9 +76,9 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
-    enable_rubrics: bool = False
-    rubric_name: str = "default"
-    rubric_json: str | None = None
+    enable_criteria: bool = False
+    criteria_name: str = "default"
+    criteria_file: str | None = None
 
     result_folder: str = "results"
 
@@ -200,21 +200,21 @@ class CliArgs:
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
         parser.add_argument(
-            "--enable_rubrics",
+            "--enable_criteria",
             action="store_true",
-            help="If specified, run rubric-based pairwise scoring in addition to the legacy pairwise judge output.",
+            help="If specified, run criteria-based pairwise scoring in addition to the legacy pairwise judge output.",
         )
         parser.add_argument(
-            "--rubric_name",
+            "--criteria_name",
             type=str,
             default="default",
-            help="Rubric to use when --enable_rubrics is set (e.g. default, coding, translation, overall).",
+            help="Built-in criteria name to use when --enable_criteria is set (currently: default). Ignored if --criteria_file is provided.",
         )
         parser.add_argument(
-            "--rubric_json",
+            "--criteria_file",
             type=str,
             default=None,
-            help="Optional path to a custom rubric JSON file. If provided, this overrides --rubric_name.",
+            help="Optional path to a custom criteria file. JSON is supported in this PR. If provided, this overrides --criteria_name.",
         )
         args = parser.parse_args()
 
@@ -233,9 +233,9 @@ class CliArgs:
             max_out_tokens_judge=args.max_out_tokens_judge,
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
-            enable_rubrics=args.enable_rubrics,
-            rubric_name=args.rubric_name,
-            rubric_json=args.rubric_json,
+            enable_criteria=args.enable_criteria,
+            criteria_name=args.criteria_name,
+            criteria_file=args.criteria_file,
             result_folder=args.result_folder,
         )
 
@@ -480,10 +480,10 @@ def main(args: CliArgs):
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
 
-    if args.enable_rubrics:
-        rubric_label = args.rubric_json if args.rubric_json is not None else args.rubric_name
+    if args.enable_criteria:
+        criteria_label = args.criteria_file if args.criteria_file is not None else args.criteria_name
         print(
-            f"Running rubric pairwise scoring with rubric '{rubric_label}' "
+            f"Running criteria pairwise scoring with criteria '{criteria_label}' "
             f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'})."
         )
 
@@ -493,7 +493,7 @@ def main(args: CliArgs):
             eval_completions_A = completions_A.head(n_instructions).tolist()
             eval_completions_B = completions_B.head(n_instructions).tolist()
 
-            run_info = run_pairwise_rubric_pipeline(
+            run_info = run_pairwise_criteria_pipeline(
                 output_folder=res_folder,
                 output_prefix=name,
                 judge_model=judge_chat_model,
@@ -505,8 +505,8 @@ def main(args: CliArgs):
                 model_B_name=args.model_B,
                 provide_explanation=args.provide_explanation,
                 use_tqdm=args.use_tqdm,
-                rubric_name=args.rubric_name,
-                rubric_json=args.rubric_json,
+                criteria_name=args.criteria_name,
+                criteria_file=args.criteria_file,
                 swap_to_debias=(args.swap_mode == "both"),
                 summary_fields={
                     "dataset": args.dataset,
@@ -516,11 +516,11 @@ def main(args: CliArgs):
                 },
             )
             print(
-                f"Saved rubric outputs to {res_folder} "
+                f"Saved criteria outputs to {res_folder} "
                 f"(prefix: {run_info['prefix']})."
             )
         except Exception as e:
-            msg = f"Rubric scoring failed: {e}"
+            msg = f"Criteria scoring failed: {e}"
             print(msg)
 
     with open(res_folder / f"results-{name}.json", "w") as f:

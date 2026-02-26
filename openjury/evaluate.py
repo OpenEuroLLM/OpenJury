@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
-from openjury.rubrics.pipeline import run_pairwise_rubric_pipeline
+from openjury.criteria.pipeline import run_pairwise_criteria_pipeline
 from openjury.utils import (
     read_df,
     data_root,
@@ -95,10 +95,10 @@ def evaluate_completions(
     use_tqdm: bool = False,
     truncate_input_chars: int | None = 8192,
     provide_explanation: bool = False,
-    enable_rubrics: bool = False,
-    rubric_name: str = "default",
-    rubric_json: str | None = None,
-    rubric_swap_to_debias: bool = False,
+    enable_criteria: bool = False,
+    criteria_name: str = "default",
+    criteria_file: str | None = None,
+    criteria_swap_to_debias: bool = False,
 ):
     """
     :param dataset:
@@ -196,17 +196,17 @@ def evaluate_completions(
     with open(output_folder / "results.json", "w") as f:
         json.dump(results, f)
 
-    if enable_rubrics:
+    if enable_criteria:
         print(
-            f"Running rubric pairwise scoring with rubric '{rubric_json if rubric_json is not None else rubric_name}' "
-            f"(swap debiasing={'on' if rubric_swap_to_debias else 'off'})."
+            f"Running criteria pairwise scoring with criteria '{criteria_file if criteria_file is not None else criteria_name}' "
+            f"(swap debiasing={'on' if criteria_swap_to_debias else 'off'})."
         )
         try:
             eval_instruction_index = instructions.index.tolist()
             eval_instructions = instructions.tolist()
             eval_completions_A = completions_A.loc[instructions.index].tolist()
             eval_completions_B = completions_B.loc[instructions.index].tolist()
-            run_info = run_pairwise_rubric_pipeline(
+            run_info = run_pairwise_criteria_pipeline(
                 output_folder=output_folder,
                 output_prefix="",
                 judge_model=judge_chat_model,
@@ -218,9 +218,9 @@ def evaluate_completions(
                 model_B_name=method_B,
                 provide_explanation=provide_explanation,
                 use_tqdm=use_tqdm,
-                rubric_name=rubric_name,
-                rubric_json=rubric_json,
-                swap_to_debias=rubric_swap_to_debias,
+                criteria_name=criteria_name,
+                criteria_file=criteria_file,
+                swap_to_debias=criteria_swap_to_debias,
                 summary_fields={
                     "dataset": dataset,
                     "method_A": method_A,
@@ -228,11 +228,11 @@ def evaluate_completions(
                 },
             )
             print(
-                f"Saved rubric outputs in {output_folder} "
+                f"Saved criteria outputs in {output_folder} "
                 f"(prefix: {run_info['prefix']})."
             )
         except Exception as e:
-            print(f"Rubric scoring failed: {e}")
+            print(f"Criteria scoring failed: {e}")
 
 
 @dataclass

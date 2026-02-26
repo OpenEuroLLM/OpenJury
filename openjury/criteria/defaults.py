@@ -1,17 +1,17 @@
-"""Default rubric definitions and registry.
+"""Default criteria-set definitions and registry.
 
-Ships with one built-in rubric:
+Ships with one built-in criteria set:
     - **default**: General-purpose instruction-following evaluation
 
-Custom rubrics can be registered at runtime or loaded from JSON.
+Custom criteria sets can be registered at runtime or loaded from JSON.
 """
 
 from __future__ import annotations
 
-from openjury.rubrics.schema import Rubric, RubricDimension
+from openjury.criteria.schema import Criterion, Criteria
 
 
-# ── Default Dimensions ──────────────────────────────────────────────
+# ── Default Criteria ────────────────────────────────────────────────
 
 
 def _refs(
@@ -28,8 +28,8 @@ def _refs(
         1: s1,
     }
 
-DEFAULT_DIMENSIONS = [
-    RubricDimension(
+DEFAULT_CRITERIA = [
+    Criterion(
         name="adherence",
         description=(
             "Follows the user's instructions and constraints precisely: required format, scope, "
@@ -43,7 +43,7 @@ DEFAULT_DIMENSIONS = [
             "Does not follow the user's request in any meaningful way.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="helpfulness",
         description=(
             "Advances the user's goal with relevant, actionable content. Provides useful steps, "
@@ -57,7 +57,7 @@ DEFAULT_DIMENSIONS = [
             "Unhelpful or non-responsive to the user's goal.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="factuality",
         description=(
             "Information is correct and appropriately qualified. Avoids hallucinations and "
@@ -71,7 +71,7 @@ DEFAULT_DIMENSIONS = [
             "Largely incorrect, fabricated, or misleading.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="completeness",
         description=(
             "Covers the key aspects of the request without major omissions. Addresses all "
@@ -84,7 +84,7 @@ DEFAULT_DIMENSIONS = [
             "Fails to address the requested task in a complete or usable way.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="clarity",
         description=(
             "Well-organized, easy to follow, and unambiguous. Uses logical structure, headings/"
@@ -97,7 +97,7 @@ DEFAULT_DIMENSIONS = [
             "Confusing, disorganized, or difficult to understand.",
         ),
     ),
-    RubricDimension(
+    Criterion(
         name="fluency",
         description=(
             "Language and presentation quality: fluent, readable, appropriately concise, and "
@@ -112,42 +112,42 @@ DEFAULT_DIMENSIONS = [
     ),
 ]
 
-DEFAULT_RUBRIC = Rubric(
+DEFAULT_CRITERIA_SET = Criteria(
     name="default",
-    dimensions=DEFAULT_DIMENSIONS,
-    description="General-purpose rubric for instruction-following evaluation.",
+    criteria=DEFAULT_CRITERIA,
+    description="General-purpose criteria for instruction-following evaluation.",
 )
 
 
 # ── Registry ────────────────────────────────────────────────────────
 
-RUBRIC_REGISTRY: dict[str, Rubric] = {
-    "default": DEFAULT_RUBRIC,
+CRITERIA_REGISTRY: dict[str, Criteria] = {
+    "default": DEFAULT_CRITERIA_SET,
 }
 
 
-def get_rubric(name: str) -> Rubric:
-    """Look up a rubric by name.
+def get_criteria(name: str) -> Criteria:
+    """Look up a criteria set by name.
 
     Args:
-        name: Rubric identifier (e.g. "default").
+        name: Criteria-set identifier (e.g. "default").
 
     Returns:
-        The Rubric object.
+        The Criteria object.
 
     Raises:
-        KeyError: If the rubric name is not registered.
+        KeyError: If the criteria-set name is not registered.
     """
-    if name not in RUBRIC_REGISTRY:
-        available = ", ".join(sorted(RUBRIC_REGISTRY.keys()))
-        raise KeyError(f"Unknown rubric '{name}'. Available: {available}")
-    return RUBRIC_REGISTRY[name]
+    if name not in CRITERIA_REGISTRY:
+        available = ", ".join(sorted(CRITERIA_REGISTRY.keys()))
+        raise KeyError(f"Unknown criteria '{name}'. Available: {available}")
+    return CRITERIA_REGISTRY[name]
 
 
-def register_rubric(rubric: Rubric) -> None:
-    """Register a custom rubric so it can be looked up by name.
+def register_criteria(criteria: Criteria) -> None:
+    """Register a custom criteria set so it can be looked up by name.
 
     Args:
-        rubric: Rubric object with a unique ``name`` attribute.
+        criteria: Criteria object with a unique ``name`` attribute.
     """
-    RUBRIC_REGISTRY[rubric.name] = rubric
+    CRITERIA_REGISTRY[criteria.name] = criteria

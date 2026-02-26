@@ -1,7 +1,7 @@
-"""Schema for multi-criteria rubric evaluation.
+"""Schema for multi-criteria evaluation.
 
-Defines the data structures for rubric dimensions, complete rubrics,
-and per-completion rubric scores.
+Defines data structures for criteria sets, individual criteria,
+and per-completion criteria scores.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class RubricDimension:
-    """A single scoring dimension in a rubric.
+class Criterion:
+    """A single scoring criterion in a criteria set.
 
     Attributes:
         name: Short identifier (e.g. "fluency", "usefulness").
@@ -31,9 +31,9 @@ class RubricDimension:
     score_references: dict[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.scale_min > self.scale_max:
+        if self.scale_min >= self.scale_max:
             raise ValueError(
-                f"Invalid rubric scale for '{self.name}': "
+                f"Invalid criteria scale for '{self.name}': "
                 f"{self.scale_min} > {self.scale_max}"
             )
 
@@ -50,7 +50,7 @@ class RubricDimension:
         self.score_references = normalized
 
     def prompt_block(self) -> str:
-        """Render this dimension as a scoring instruction for the judge."""
+        """Render this criterion as a scoring instruction for the judge."""
         base = (
             f"**{self.name.title()}** ({self.scale_min}–{self.scale_max}): "
             f"{self.description}"
@@ -64,46 +64,46 @@ class RubricDimension:
         )
         return f"{base}\n   Score references:\n{refs}"
 
-
 @dataclass
-class Rubric:
-    """A collection of scoring dimensions forming a complete rubric.
+class Criteria:
+    """A collection of scoring criteria forming a complete criteria set.
 
     Attributes:
-        name: Rubric identifier (e.g. "default", "coding", "translation").
-        dimensions: List of scoring dimensions.
-        description: Optional description of when to use this rubric.
+        name: Criteria identifier (e.g. "default", "my_custom").
+        criteria: List of scoring criteria.
+        description: Optional description of when to use this criteria set.
     """
 
     name: str
-    dimensions: list[RubricDimension]
+    criteria: list[Criterion]
     description: str = ""
 
     @property
-    def dimension_names(self) -> list[str]:
-        return [d.name for d in self.dimensions]
+    def criterion_names(self) -> list[str]:
+        """Names of all criteria in order."""
+        return [c.name for c in self.criteria]
 
     @property
-    def k(self) -> int:
-        """Number of dimensions."""
-        return len(self.dimensions)
+    def num_criteria(self) -> int:
+        """Number of criteria."""
+        return len(self.criteria)
 
     def prompt_block(self) -> str:
-        """Render the full rubric as scoring instructions."""
-        lines = ["Score the following completion on each dimension:\n"]
-        for i, dim in enumerate(self.dimensions, 1):
+        """Render the full criteria as scoring instructions."""
+        lines = ["Score the following completion on each criterion:\n"]
+        for i, dim in enumerate(self.criteria, 1):
             lines.append(f"{i}. {dim.prompt_block()}")
         return "\n".join(lines)
 
 
 @dataclass
-class RubricScore:
-    """Scores for a single (instruction, completion) pair across all dimensions.
+class CriteriaScore:
+    """Scores for a single (instruction, completion) pair across all criteria.
 
     Attributes:
         instruction_index: Index linking back to the instruction.
         model: Model that generated the completion.
-        scores: Dict mapping dimension name → score.
+        scores: Dict mapping criterion name → score.
         raw_judge_output: Raw text from the judge (for debugging).
     """
 
@@ -112,22 +112,22 @@ class RubricScore:
     scores: dict[str, float]
     raw_judge_output: str = ""
 
-    def as_vector(self, dimension_names: list[str]) -> list[float]:
-        """Return scores as an ordered vector matching dimension_names."""
-        return [self.scores.get(name, 0.0) for name in dimension_names]
+    def to_list(self, criterion_names: list[str]) -> list[float]:
+        """Return scores as an ordered vector matching criterion_names."""
+        return [self.scores.get(name, 0.0) for name in criterion_names]
 
 
 @dataclass
-class PairwiseRubricResult:
-    """Result of a pairwise rubric comparison: both A and B scored in one call.
+class PairwiseCriteriaResult:
+    """Result of a pairwise comparison under a criteria set.
 
-    The judge sees both completions side-by-side, scores each on every rubric
-    dimension, and gives an overall preference.
+    The judge sees both completions side-by-side, scores each on every
+    criterion, and gives an overall preference.
 
     Attributes:
         instruction_index: Index linking back to the instruction.
-        scores_A: Dict mapping dimension name → score for completion A.
-        scores_B: Dict mapping dimension name → score for completion B.
+        scores_A: Dict mapping criterion name → score for completion A.
+        scores_B: Dict mapping criterion name → score for completion B.
         preference: Overall preference from the judge: 0.0 = A wins,
             0.5 = tie, 1.0 = B wins.
         raw_judge_output: Raw text from the judge (for debugging).
@@ -141,18 +141,18 @@ class PairwiseRubricResult:
     raw_judge_output: str = ""
     raw_judge_output_swapped: str | None = None
 
-    def as_rubric_scores(
+    def as_criteria_scores(
         self, model_A: str, model_B: str,
-    ) -> tuple[RubricScore, RubricScore]:
-        """Convert to two RubricScore objects (one per model)."""
+    ) -> tuple[CriteriaScore, CriteriaScore]:
+        """Convert to two CriteriaScore objects (one per model)."""
         return (
-            RubricScore(
+            CriteriaScore(
                 instruction_index=self.instruction_index,
                 model=model_A,
                 scores=self.scores_A,
                 raw_judge_output=self.raw_judge_output,
             ),
-            RubricScore(
+            CriteriaScore(
                 instruction_index=self.instruction_index,
                 model=model_B,
                 scores=self.scores_B,

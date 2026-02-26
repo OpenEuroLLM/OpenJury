@@ -1,0 +1,10 @@
+## Instruction
+{instruction}
+
+## Completion A
+{completion_A}
+
+## Completion B
+{completion_B}
+
+Compare both completions. Score each on every criterion, then state your overall preference.

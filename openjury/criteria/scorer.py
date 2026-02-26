@@ -1,22 +1,23 @@
-"""Score completions on rubric dimensions using an LLM judge.
+"""Score completions on a criteria set using an LLM judge.
 
 Supports two modes:
 
 - **Pairwise** (default): Judge sees both A and B side-by-side, scores each
-  on rubric dimensions, then gives an overall preference. N calls (2N with
+  on the criteria, then gives an overall preference. N calls (2N with
   swap-debiasing). Best for ranking.
 - **Sample-wise**: Judge scores each completion independently (2N calls).
-  Preferences are derived from the weighted average of rubric dimension
+  Preferences are derived from the weighted average of criterion
   scores — no extra judge call. Optionally uses a reference answer as an
   anchor. Best for absolute quality assessment.
 
 Example (pairwise)::
 
-    from openjury.rubrics import RubricScorer, get_rubric
+    from openjury.criteria.defaults import get_criteria
+    from openjury.criteria.scorer import CriteriaScorer
     from openjury.utils import make_model
 
     judge = make_model("VLLM/Qwen/Qwen3-32B")
-    scorer = RubricScorer(judge_model=judge, rubric=get_rubric("default"))
+    scorer = CriteriaScorer(judge_model=judge, criteria=get_criteria("default"))
 
     results = scorer.score_pairwise(
         instructions=["Write a haiku about AI"],
@@ -26,7 +27,13 @@ Example (pairwise)::
 
 Example (sample-wise with reference)::
 
-    scores = scorer.score(
+    sample_scorer = CriteriaScorer(
+        judge_model=judge,
+        criteria=get_criteria("default"),
+        mode="samplewise",
+    )
+
+    scores = sample_scorer.score(
         instructions=["What is 2+2?"],
         completions=["4"],
         model_name="gpt-4o",
@@ -39,14 +46,13 @@ from __future__ import annotations
 import json
 import logging
 import re
-from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
 from openjury.prompts import load_prompt
-from openjury.rubrics.schema import Rubric, RubricScore, PairwiseRubricResult
+from openjury.criteria.schema import Criteria, CriteriaScore, PairwiseCriteriaResult
 from openjury.utils import do_inference
 logger = logging.getLogger(__name__)
 
@@ -55,94 +61,115 @@ logger = logging.getLogger(__name__)
 #  Scorer
 # ═════════════════════════════════════════════════════════════════════
 
+_EXAMPLE_SCORE_SEED = (7, 8, 6, 9, 7, 8, 5, 10, 6, 9)
 
-class RubricScorer:
-    """Scores completions along rubric dimensions using an LLM judge.
+
+def _build_example_scores(
+    criteria: Criteria,
+    decrement: int = 0,
+) -> dict[str, int]:
+    """Build deterministic example scores using the criteria-set's names."""
+    scores: dict[str, int] = {}
+    for i, dim in enumerate(criteria.criteria):
+        base = _EXAMPLE_SCORE_SEED[i % len(_EXAMPLE_SCORE_SEED)] - decrement
+        scores[dim.name] = min(dim.scale_max, max(dim.scale_min, base))
+    return scores
+
+
+def _build_example_json_strings(criteria: Criteria) -> tuple[str, str]:
+    """Return example JSON strings for samplewise and pairwise prompt formatting."""
+    example_a = _build_example_scores(criteria)
+    example_b = _build_example_scores(criteria, decrement=1)
+    example_json = json.dumps(example_a)
+    example_pairwise_json = json.dumps(
+        {"scores_A": example_a, "scores_B": example_b, "preference": "A"},
+        indent=2,
+    )
+    return example_json, example_pairwise_json
+
+
+class CriteriaScorer:
+    """Scores completions along a criteria set using an LLM judge.
 
     Supports pairwise (A vs B) and sample-wise (independent) scoring.
 
     Args:
         judge_model: A LangChain-compatible chat model or wrapper accepted by
             ``openjury.utils.do_inference``.
-        rubric: The rubric to evaluate against.
+        criteria: The criteria set to evaluate against.
         provide_explanation: Whether to ask the judge for explanations.
+        mode: Scoring mode. ``"pairwise"`` (default) or ``"samplewise"``.
     """
-
-    @classmethod
-    @lru_cache(maxsize=1)
-    def _prompt_templates(cls) -> dict[str, str]:
-        """Load rubric prompt templates once per process."""
-        return {
-            "samplewise_system": load_prompt("rubric_samplewise_system"),
-            "samplewise_user": load_prompt("rubric_samplewise_user"),
-            "pairwise_system": load_prompt("rubric_pairwise_system"),
-            "pairwise_user": load_prompt("rubric_pairwise_user"),
-        }
 
     def __init__(
         self,
         judge_model: Any,
-        rubric: Rubric,
+        criteria: Criteria,
         provide_explanation: bool = False,
+        mode: Literal["pairwise", "samplewise"] = "pairwise",
     ):
+        if mode not in {"pairwise", "samplewise"}:
+            raise ValueError(f"Unsupported mode '{mode}'. Use 'pairwise' or 'samplewise'.")
         self.judge_model = judge_model
-        self.rubric = rubric
+        self.criteria = criteria
         self.provide_explanation = provide_explanation
+        self.mode = mode
 
         explanation_block = (
-            "Before providing scores, briefly explain your reasoning for each dimension."
+            "Before providing scores, briefly explain your reasoning for each criterion."
             if provide_explanation
             else "Provide ONLY the JSON output, no explanation needed."
         )
 
-        # Generate example JSON that uses the *actual* dimension names
-        # so the model sees consistent names between rubric block and example.
-        _sample_vals = [7, 8, 6, 9, 7, 8, 5, 10, 6, 9]
-        _example = {
-            dim.name: min(
-                dim.scale_max,
-                max(dim.scale_min, _sample_vals[i % len(_sample_vals)]),
+        example_json, example_pairwise_json = _build_example_json_strings(criteria)
+        if self.mode == "pairwise":
+            self._init_pairwise_prompts(
+                explanation_block=explanation_block,
+                example_pairwise_json=example_pairwise_json,
             )
-            for i, dim in enumerate(rubric.dimensions)
-        }
-        _example_json = json.dumps(_example)
-        _example_b = {
-            dim.name: min(
-                dim.scale_max,
-                max(dim.scale_min, _sample_vals[i % len(_sample_vals)] - 1),
+        else:
+            self._init_samplewise_prompts(
+                explanation_block=explanation_block,
+                example_json=example_json,
             )
-            for i, dim in enumerate(rubric.dimensions)
-        }
-        _example_pairwise = json.dumps(
-            {"scores_A": _example, "scores_B": _example_b, "preference": "A"},
-            indent=2,
+
+    def _init_pairwise_prompts(
+        self,
+        explanation_block: str,
+        example_pairwise_json: str,
+    ) -> None:
+        """Load and format pairwise prompt templates only."""
+        pairwise_system_template = load_prompt("criteria_pairwise_system")
+        self._pairwise_user_template = load_prompt("criteria_pairwise_user")
+        self._pairwise_system = pairwise_system_template.format(
+            criteria_block=self.criteria.prompt_block(),
+            explanation_block=explanation_block,
+            example_json_pairwise=example_pairwise_json,
         )
 
-        templates = self._prompt_templates()
-        self._samplewise_user_template = templates["samplewise_user"]
-        self._pairwise_user_template = templates["pairwise_user"]
-
-        # Build system prompts for both modes
-        self._samplewise_system = templates["samplewise_system"].format(
-            rubric_block=rubric.prompt_block(),
+    def _init_samplewise_prompts(
+        self,
+        explanation_block: str,
+        example_json: str,
+    ) -> None:
+        """Load and format samplewise prompt templates only."""
+        samplewise_system_template = load_prompt("criteria_samplewise_system")
+        self._samplewise_user_template = load_prompt("criteria_samplewise_user")
+        self._samplewise_system = samplewise_system_template.format(
+            criteria_block=self.criteria.prompt_block(),
             reference_block="",  # Filled dynamically when reference is provided
             explanation_block=explanation_block,
-            example_json=_example_json,
+            example_json=example_json,
         )
-        self._samplewise_system_with_ref = templates["samplewise_system"].format(
-            rubric_block=rubric.prompt_block(),
+        self._samplewise_system_with_ref = samplewise_system_template.format(
+            criteria_block=self.criteria.prompt_block(),
             reference_block=(
                 "You are also given a REFERENCE ANSWER. Use it as an anchor to "
                 "calibrate your scores. A perfect completion should match or exceed "
                 "the reference answer in quality."
             ),
             explanation_block=explanation_block,
-            example_json=_example_json,
-        )
-        self._pairwise_system = templates["pairwise_system"].format(
-            rubric_block=rubric.prompt_block(),
-            explanation_block=explanation_block,
-            example_json_pairwise=_example_pairwise,
+            example_json=example_json,
         )
 
     @property
@@ -150,13 +177,15 @@ class RubricScorer:
         """Return the formatted system prompts for debugging/reproducibility.
 
         Returns:
-            Dict with keys ``samplewise``, ``samplewise_with_ref``,
-            ``pairwise`` — each the fully rendered system prompt string.
+            Mode-specific prompt dict:
+            - pairwise mode: ``{"pairwise": ...}``
+            - samplewise mode: ``{"samplewise": ..., "samplewise_with_ref": ...}``
         """
+        if self.mode == "pairwise":
+            return {"pairwise": self._pairwise_system}
         return {
             "samplewise": self._samplewise_system,
             "samplewise_with_ref": self._samplewise_system_with_ref,
-            "pairwise": self._pairwise_system,
         }
 
     # ─────────────────────────────────────────────────────────────
@@ -166,17 +195,17 @@ class RubricScorer:
     def _normalize_score_keys(
         self, scores: dict[str, float],
     ) -> dict[str, float]:
-        """Map parsed score keys back to canonical rubric dimension names.
+        """Map parsed score keys back to canonical criterion names.
 
-        The judge prompt renders dimensions via ``prompt_block()`` which
+        The judge prompt renders criteria via ``prompt_block()`` which
         applies ``.title()`` casing (e.g. ``Instruction_Adherence``).  The
         model's JSON output therefore typically uses title-cased keys,
         but all downstream code (preference derivation, weighted
         averaging, DataFrame columns) expects the canonical lowercase
-        names (``instruction_adherence``).  This method performs a
+        names (``instruction_adherence``). This method performs a
         case-insensitive mapping to reconcile the two.
         """
-        lookup = {d.lower(): d for d in self.rubric.dimension_names}
+        lookup = {d.lower(): d for d in self.criteria.criterion_names}
         return {
             lookup.get(k.lower(), k): v
             for k, v in scores.items()
@@ -194,10 +223,10 @@ class RubricScorer:
         swap_to_debias: bool = True,
         use_tqdm: bool = False,
         force_async: bool = False,
-    ) -> list[PairwiseRubricResult]:
-        """Compare A vs B on rubric dimensions in a single judge call.
+    ) -> list[PairwiseCriteriaResult]:
+        """Compare A vs B under a criteria set in a single judge call.
 
-        The judge sees both completions, scores each on every dimension,
+        The judge sees both completions, scores each on every criterion,
         and states an overall preference. If ``swap_to_debias=True``, runs
         each pair twice (A/B then B/A) and averages to cancel position bias.
 
@@ -210,8 +239,13 @@ class RubricScorer:
             force_async: Ignored on this branch; kept for API compatibility.
 
         Returns:
-            List of PairwiseRubricResult, one per instruction.
+            List of PairwiseCriteriaResult, one per instruction.
         """
+        if self.mode != "pairwise":
+            raise RuntimeError(
+                "CriteriaScorer is configured for samplewise mode. "
+                "Instantiate with mode='pairwise' to use score_pairwise()."
+            )
         assert len(instructions) == len(completions_A) == len(completions_B)
         n = len(instructions)
 
@@ -221,8 +255,8 @@ class RubricScorer:
         )
 
         logger.info(
-            "Pairwise rubric scoring: %d pairs on %d dimensions (A/B order)",
-            n, self.rubric.k,
+            "Pairwise criteria scoring: %d pairs on %d criteria (A/B order)",
+            n, self.criteria.num_criteria,
         )
         raw_ab = do_inference(
             chat_model=self.judge_model,
@@ -239,8 +273,8 @@ class RubricScorer:
                 completions_B=completions_A,  # SWAPPED
             )
             logger.info(
-                "Pairwise rubric scoring: %d pairs on %d dimensions (B/A debiasing)",
-                n, self.rubric.k,
+                "Pairwise criteria scoring: %d pairs on %d criteria (B/A debiasing)",
+                n, self.criteria.num_criteria,
             )
             raw_ba = do_inference(
                 chat_model=self.judge_model,
@@ -249,7 +283,7 @@ class RubricScorer:
             )
 
         # Parse and merge results
-        results: list[PairwiseRubricResult] = []
+        results: list[PairwiseCriteriaResult] = []
         for i in range(n):
             text_ab = raw_ab[i] if isinstance(raw_ab[i], str) else raw_ab[i].content
             parsed_ab = self._parse_pairwise(text_ab)
@@ -263,7 +297,7 @@ class RubricScorer:
                 merged = parsed_ab
                 merged_raw_swapped = None
 
-            results.append(PairwiseRubricResult(
+            results.append(PairwiseCriteriaResult(
                 instruction_index=i,
                 scores_A=merged["scores_A"],
                 scores_B=merged["scores_B"],
@@ -274,7 +308,7 @@ class RubricScorer:
 
         valid = sum(1 for r in results if r.preference != 0.5)
         logger.info(
-            "Pairwise rubric: %d/%d valid preferences%s",
+            "Pairwise criteria: %d/%d valid preferences%s",
             valid, n,
             " (position-swap debiased)" if swap_to_debias else "",
         )
@@ -307,7 +341,7 @@ class RubricScorer:
         Returns:
             Dict with keys: scores_A, scores_B (dicts), preference (float).
         """
-        nan_scores = {dim: float("nan") for dim in self.rubric.dimension_names}
+        nan_scores = {dim: float("nan") for dim in self.criteria.criterion_names}
         default = {"scores_A": nan_scores.copy(), "scores_B": nan_scores.copy(), "preference": 0.5}
 
         # Try ```json ... ``` blocks
@@ -330,7 +364,7 @@ class RubricScorer:
 
         # Last resort: try regex for individual score patterns
         scores_a, scores_b = {}, {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.criteria.criterion_names:
             # Look for patterns like scores_A.fluency: 4 or "A": {"fluency": 4}
             match_a = re.search(
                 rf'(?:scores?_?A|completion_?A).*?{re.escape(dim)}.*?(\d+(?:\.\d+)?)',
@@ -352,12 +386,12 @@ class RubricScorer:
             pref = 0.0 if p == "A" else 1.0 if p == "B" else 0.5
 
         if scores_a or scores_b:
-            for dim in self.rubric.dimension_names:
+            for dim in self.criteria.criterion_names:
                 scores_a.setdefault(dim, float("nan"))
                 scores_b.setdefault(dim, float("nan"))
             return {"scores_A": scores_a, "scores_B": scores_b, "preference": pref}
 
-        logger.warning("Could not parse pairwise rubric output: %s", raw_output[:200])
+        logger.warning("Could not parse pairwise criteria output: %s", raw_output[:200])
         return default
 
     def _extract_pairwise_from_dict(self, data: dict) -> dict:
@@ -386,7 +420,7 @@ class RubricScorer:
         actually B, and vice versa. So we flip them back before averaging.
         """
         merged_A, merged_B = {}, {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.criteria.criterion_names:
             # ab: scores_A = actual A, scores_B = actual B
             # ba: scores_A = actual B (swapped), scores_B = actual A (swapped)
             a_from_ab = ab["scores_A"].get(dim, float("nan"))
@@ -437,7 +471,7 @@ class RubricScorer:
         return prompts
 
     def  _parse_scores(self, raw_output: str) -> dict[str, float]:
-        """Extract dimension scores from judge output.
+        """Extract criterion scores from judge output.
 
         Tries to find JSON in ```json``` blocks first, then falls back to
         finding any JSON object in the text, and finally to key: value patterns.
@@ -446,7 +480,7 @@ class RubricScorer:
             raw_output: Raw text output from the judge.
 
         Returns:
-            Dict mapping dimension name → score. NaN for unparseable scores.
+            Dict mapping criterion name → score. NaN for unparseable scores.
         """
         # Try ```json ... ``` blocks
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw_output, re.DOTALL)
@@ -472,7 +506,7 @@ class RubricScorer:
 
         # Last resort: try to parse key: value patterns
         scores = {}
-        for dim in self.rubric.dimension_names:
+        for dim in self.criteria.criterion_names:
             pattern = rf'["\']?{re.escape(dim)}["\']?\s*[:=]\s*(\d+(?:\.\d+)?)'
             match = re.search(pattern, raw_output, re.IGNORECASE)
             if match:
@@ -482,10 +516,10 @@ class RubricScorer:
             return scores
 
         logger.warning(
-            "Could not parse rubric scores from judge output: %s",
+            "Could not parse criteria scores from judge output: %s",
             raw_output[:200],
         )
-        return {dim: float("nan") for dim in self.rubric.dimension_names}
+        return {dim: float("nan") for dim in self.criteria.criterion_names}
 
     def score(
         self,
@@ -495,8 +529,8 @@ class RubricScorer:
         use_tqdm: bool = False,
         force_async: bool = False,
         reference_answers: list[str] | None = None,
-    ) -> list[RubricScore]:
-        """Score completions independently (sample-wise) on the rubric.
+    ) -> list[CriteriaScore]:
+        """Score completions independently (sample-wise) on the criteria.
 
         Each completion is evaluated in isolation. If ``reference_answers``
         is provided, the judge uses them as quality anchors for calibration.
@@ -511,8 +545,13 @@ class RubricScorer:
                 to anchor scoring. Can come from another LLM or human labels.
 
         Returns:
-            List of RubricScore objects, one per (instruction, completion) pair.
+            List of CriteriaScore objects, one per (instruction, completion) pair.
         """
+        if self.mode != "samplewise":
+            raise RuntimeError(
+                "CriteriaScorer is configured for pairwise mode. "
+                "Instantiate with mode='samplewise' to use score()."
+            )
         assert len(instructions) == len(completions), (
             f"instructions ({len(instructions)}) and completions ({len(completions)}) "
             "must have the same length"
@@ -527,8 +566,8 @@ class RubricScorer:
 
         mode_label = "sample-wise (with reference)" if reference_answers else "sample-wise"
         logger.info(
-            "Scoring %d completions from [model]%s[/model] on %d rubric dimensions (%s)",
-            len(prompts), model_name, self.rubric.k, mode_label,
+            "Scoring %d completions from [model]%s[/model] on %d criteria (%s)",
+            len(prompts), model_name, self.criteria.num_criteria, mode_label,
         )
 
         raw_outputs = do_inference(
@@ -542,7 +581,7 @@ class RubricScorer:
             raw_text = raw if isinstance(raw, str) else raw.content
             scores = self._parse_scores(raw_text)
             results.append(
-                RubricScore(
+                CriteriaScore(
                     instruction_index=i,
                     model=model_name,
                     scores=scores,
@@ -556,7 +595,7 @@ class RubricScorer:
             if not any(v != v for v in r.scores.values())  # NaN check
         ]
         logger.info(
-            "Successfully parsed %d/%d rubric scores",
+            "Successfully parsed %d/%d criteria scores",
             len(valid_scores),
             len(results),
         )
@@ -569,14 +608,14 @@ class RubricScorer:
 
     def score_to_dataframe(
         self,
-        rubric_scores: list[RubricScore],
+        criteria_scores: list[CriteriaScore],
     ) -> pd.DataFrame:
-        """Convert rubric scores to a DataFrame.
+        """Convert criteria scores to a DataFrame.
 
-        Columns: instruction_index, model, dim1, dim2, ..., dimK, raw_judge_output.
+        Columns: instruction_index, model, criterion_1, criterion_2, ..., raw_judge_output.
         """
         rows = []
-        for rs in rubric_scores:
+        for rs in criteria_scores:
             row = {
                 "instruction_index": rs.instruction_index,
                 "model": rs.model,
@@ -588,7 +627,7 @@ class RubricScorer:
 
     def pairwise_to_dataframes(
         self,
-        results: list[PairwiseRubricResult],
+        results: list[PairwiseCriteriaResult],
         model_A_name: str,
         model_B_name: str,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
@@ -617,18 +656,18 @@ class RubricScorer:
 
     def samplewise_to_dataframes(
         self,
-        scores_A: list[RubricScore],
-        scores_B: list[RubricScore],
+        scores_A: list[CriteriaScore],
+        scores_B: list[CriteriaScore],
         model_A_name: str,
         model_B_name: str,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
         """Convert samplewise scores to DataFrames and derive preferences.
 
-        Preferences are computed from the **weighted average** of rubric
-        dimension scores — no extra judge call required.  For each
+        Preferences are computed from the **weighted average** of criteria
+        criterion scores — no extra judge call required. For each
         instruction, if weighted-avg(A) > weighted-avg(B) → 0.0 (A wins),
         < → 1.0 (B wins), equal → 0.5 (tie).  Weights come from
-        ``RubricDimension.weight`` (all 1.0 by default, i.e. plain mean).
+        ``Criterion.weight`` (all 1.0 by default, i.e. plain mean).
 
         Returns:
             (df_scores_A, df_scores_B, preferences)
@@ -636,12 +675,12 @@ class RubricScorer:
         df_A = self.score_to_dataframe(scores_A)
         df_B = self.score_to_dataframe(scores_B)
 
-        weights = {d.name: d.weight for d in self.rubric.dimensions}
+        weights = {d.name: d.weight for d in self.criteria.criteria}
 
         prefs: list[float] = []
         for sa, sb in zip(scores_A, scores_B):
-            avg_a = self._weighted_rubric_avg(sa.scores, weights)
-            avg_b = self._weighted_rubric_avg(sb.scores, weights)
+            avg_a = self._weighted_criteria_avg(sa.scores, weights)
+            avg_b = self._weighted_criteria_avg(sb.scores, weights)
 
             if np.isnan(avg_a) or np.isnan(avg_b):
                 prefs.append(0.5)          # can't decide — treat as tie
@@ -658,7 +697,7 @@ class RubricScorer:
         n_b = (prefs_series > 0.5).sum()
         n_t = (prefs_series == 0.5).sum()
         logger.info(
-            "Samplewise preferences (from rubric weighted avg): "
+            "Samplewise preferences (from criteria weighted avg): "
             "A wins=%d, B wins=%d, ties=%d (of %d)",
             n_a, n_b, n_t, len(prefs),
         )
@@ -666,11 +705,11 @@ class RubricScorer:
         return df_A, df_B, prefs_series
 
     @staticmethod
-    def _weighted_rubric_avg(
+    def _weighted_criteria_avg(
         scores: dict[str, float],
         weights: dict[str, float],
     ) -> float:
-        """Weighted average of rubric scores, skipping NaN dimensions."""
+        """Weighted average of criteria scores, skipping NaN criteria."""
         total_w = 0.0
         total_s = 0.0
         for dim, w in weights.items():

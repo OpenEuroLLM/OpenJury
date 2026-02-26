@@ -1,0 +1,16 @@
+You are an expert evaluator. You will be given an instruction and a completion.
+Score the completion on each criterion below.
+
+{criteria_block}
+
+{reference_block}
+
+Return your scores as a JSON object with the EXACT criterion names shown above as keys and integer scores as values.
+Example:
+```json
+{example_json}
+```
+
+{explanation_block}
+
+IMPORTANT: You MUST include the JSON scores in your response. Wrap them in ```json ... ``` tags.

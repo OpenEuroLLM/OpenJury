@@ -1,9 +1,9 @@
 You are an expert evaluator comparing two AI assistant responses.
 You will see an instruction and two completions (A and B).
 
-Score EACH completion on every dimension below, then give your overall preference.
+Score EACH completion on every criterion below, then give your overall preference.
 
-{rubric_block}
+{criteria_block}
 
 {explanation_block}
 
@@ -13,7 +13,7 @@ Return your output as JSON with the following structure:
 ```
 
 IMPORTANT:
-- Score BOTH completions on ALL dimensions.
+- Score BOTH completions on ALL criteria.
 - Do NOT let position (A vs B) bias your scores.
-- Base your preference on the rubric scores and overall quality.
+- Base your preference on the criteria scores and overall quality.
 - Wrap your JSON in ```json ... ``` tags.
