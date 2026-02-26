@@ -43,3 +43,4 @@ dev = [
 [project.optional-dependencies]
 vllm = ["vllm==0.10.2", "transformers>=4.55.2,<5.0.0"]
 llamacpp = ["llama-cpp-python>=0.3.0"]
+bt = ["scikit-learn>=1.7.2"]
