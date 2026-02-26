@@ -12,11 +12,10 @@ from openjury.rubrics.schema import Criterion, Rubric
 def load_rubric_from_json(path: str | Path) -> Rubric:
     """Load a rubric definition from a JSON file.
 
-    Supports both the preferred ``"criteria"`` key and the legacy
-    ``"dimensions"`` key (for backward compatibility).
+    Expects the preferred ``"criteria"`` key.
     """
     data = json.loads(Path(path).read_text())
-    criteria_data = data.get("criteria", data["dimensions"])
+    criteria_data = data["criteria"]
     criteria = [
         Criterion(
             name=d["name"],

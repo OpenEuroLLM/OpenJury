@@ -79,7 +79,7 @@ def test_rubric_accepts_legacy_dimensions_keyword():
     assert rubric.criterion_names == ["overall"]
 
 
-def test_load_rubric_from_json_supports_legacy_dimensions_key(tmp_path):
+def test_load_rubric_from_json_requires_criteria_key(tmp_path):
     path = tmp_path / "legacy_dimensions.json"
     path.write_text(
         json.dumps(
@@ -92,9 +92,8 @@ def test_load_rubric_from_json_supports_legacy_dimensions_key(tmp_path):
         )
     )
 
-    rubric = load_rubric_from_json(path)
-    assert rubric.name == "legacy_dims"
-    assert rubric.criterion_names == ["overall"]
+    with pytest.raises(KeyError, match="criteria"):
+        load_rubric_from_json(path)
 
 
 def test_load_rubric_from_json_supports_criteria_key(tmp_path):
