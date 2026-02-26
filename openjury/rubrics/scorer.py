@@ -27,7 +27,13 @@ Example (pairwise)::
 
 Example (sample-wise with reference)::
 
-    scores = scorer.score(
+    sample_scorer = RubricScorer(
+        judge_model=judge,
+        rubric=get_rubric("default"),
+        mode="samplewise",
+    )
+
+    scores = sample_scorer.score(
         instructions=["What is 2+2?"],
         completions=["4"],
         model_name="gpt-4o",
@@ -40,8 +46,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -56,6 +61,32 @@ logger = logging.getLogger(__name__)
 #  Scorer
 # ═════════════════════════════════════════════════════════════════════
 
+_EXAMPLE_SCORE_SEED = (7, 8, 6, 9, 7, 8, 5, 10, 6, 9)
+
+
+def _build_example_scores(
+    rubric: Rubric,
+    decrement: int = 0,
+) -> dict[str, int]:
+    """Build deterministic example scores using the rubric's dimension names."""
+    scores: dict[str, int] = {}
+    for i, dim in enumerate(rubric.dimensions):
+        base = _EXAMPLE_SCORE_SEED[i % len(_EXAMPLE_SCORE_SEED)] - decrement
+        scores[dim.name] = min(dim.scale_max, max(dim.scale_min, base))
+    return scores
+
+
+def _build_example_json_strings(rubric: Rubric) -> tuple[str, str]:
+    """Return example JSON strings for samplewise and pairwise prompt formatting."""
+    example_a = _build_example_scores(rubric)
+    example_b = _build_example_scores(rubric, decrement=1)
+    example_json = json.dumps(example_a)
+    example_pairwise_json = json.dumps(
+        {"scores_A": example_a, "scores_B": example_b, "preference": "A"},
+        indent=2,
+    )
+    return example_json, example_pairwise_json
+
 
 class RubricScorer:
     """Scores completions along rubric dimensions using an LLM judge.
@@ -67,28 +98,22 @@ class RubricScorer:
             ``openjury.utils.do_inference``.
         rubric: The rubric to evaluate against.
         provide_explanation: Whether to ask the judge for explanations.
+        mode: Scoring mode. ``"pairwise"`` (default) or ``"samplewise"``.
     """
-
-    @classmethod
-    @lru_cache(maxsize=1)
-    def _prompt_templates(cls) -> dict[str, str]:
-        """Load rubric prompt templates once per process."""
-        return {
-            "samplewise_system": load_prompt("rubric_samplewise_system"),
-            "samplewise_user": load_prompt("rubric_samplewise_user"),
-            "pairwise_system": load_prompt("rubric_pairwise_system"),
-            "pairwise_user": load_prompt("rubric_pairwise_user"),
-        }
 
     def __init__(
         self,
         judge_model: Any,
         rubric: Rubric,
         provide_explanation: bool = False,
+        mode: Literal["pairwise", "samplewise"] = "pairwise",
     ):
+        if mode not in {"pairwise", "samplewise"}:
+            raise ValueError(f"Unsupported mode '{mode}'. Use 'pairwise' or 'samplewise'.")
         self.judge_model = judge_model
         self.rubric = rubric
         self.provide_explanation = provide_explanation
+        self.mode = mode
 
         explanation_block = (
             "Before providing scores, briefly explain your reasoning for each dimension."
@@ -96,54 +121,55 @@ class RubricScorer:
             else "Provide ONLY the JSON output, no explanation needed."
         )
 
-        # Generate example JSON that uses the *actual* dimension names
-        # so the model sees consistent names between rubric block and example.
-        _sample_vals = [7, 8, 6, 9, 7, 8, 5, 10, 6, 9]
-        _example = {
-            dim.name: min(
-                dim.scale_max,
-                max(dim.scale_min, _sample_vals[i % len(_sample_vals)]),
+        example_json, example_pairwise_json = _build_example_json_strings(rubric)
+        if self.mode == "pairwise":
+            self._init_pairwise_prompts(
+                explanation_block=explanation_block,
+                example_pairwise_json=example_pairwise_json,
             )
-            for i, dim in enumerate(rubric.dimensions)
-        }
-        _example_json = json.dumps(_example)
-        _example_b = {
-            dim.name: min(
-                dim.scale_max,
-                max(dim.scale_min, _sample_vals[i % len(_sample_vals)] - 1),
+        else:
+            self._init_samplewise_prompts(
+                explanation_block=explanation_block,
+                example_json=example_json,
             )
-            for i, dim in enumerate(rubric.dimensions)
-        }
-        _example_pairwise = json.dumps(
-            {"scores_A": _example, "scores_B": _example_b, "preference": "A"},
-            indent=2,
+
+    def _init_pairwise_prompts(
+        self,
+        explanation_block: str,
+        example_pairwise_json: str,
+    ) -> None:
+        """Load and format pairwise prompt templates only."""
+        pairwise_system_template = load_prompt("rubric_pairwise_system")
+        self._pairwise_user_template = load_prompt("rubric_pairwise_user")
+        self._pairwise_system = pairwise_system_template.format(
+            rubric_block=self.rubric.prompt_block(),
+            explanation_block=explanation_block,
+            example_json_pairwise=example_pairwise_json,
         )
 
-        templates = self._prompt_templates()
-        self._samplewise_user_template = templates["samplewise_user"]
-        self._pairwise_user_template = templates["pairwise_user"]
-
-        # Build system prompts for both modes
-        self._samplewise_system = templates["samplewise_system"].format(
-            rubric_block=rubric.prompt_block(),
+    def _init_samplewise_prompts(
+        self,
+        explanation_block: str,
+        example_json: str,
+    ) -> None:
+        """Load and format samplewise prompt templates only."""
+        samplewise_system_template = load_prompt("rubric_samplewise_system")
+        self._samplewise_user_template = load_prompt("rubric_samplewise_user")
+        self._samplewise_system = samplewise_system_template.format(
+            rubric_block=self.rubric.prompt_block(),
             reference_block="",  # Filled dynamically when reference is provided
             explanation_block=explanation_block,
-            example_json=_example_json,
+            example_json=example_json,
         )
-        self._samplewise_system_with_ref = templates["samplewise_system"].format(
-            rubric_block=rubric.prompt_block(),
+        self._samplewise_system_with_ref = samplewise_system_template.format(
+            rubric_block=self.rubric.prompt_block(),
             reference_block=(
                 "You are also given a REFERENCE ANSWER. Use it as an anchor to "
                 "calibrate your scores. A perfect completion should match or exceed "
                 "the reference answer in quality."
             ),
             explanation_block=explanation_block,
-            example_json=_example_json,
-        )
-        self._pairwise_system = templates["pairwise_system"].format(
-            rubric_block=rubric.prompt_block(),
-            explanation_block=explanation_block,
-            example_json_pairwise=_example_pairwise,
+            example_json=example_json,
         )
 
     @property
@@ -151,13 +177,15 @@ class RubricScorer:
         """Return the formatted system prompts for debugging/reproducibility.
 
         Returns:
-            Dict with keys ``samplewise``, ``samplewise_with_ref``,
-            ``pairwise`` — each the fully rendered system prompt string.
+            Mode-specific prompt dict:
+            - pairwise mode: ``{"pairwise": ...}``
+            - samplewise mode: ``{"samplewise": ..., "samplewise_with_ref": ...}``
         """
+        if self.mode == "pairwise":
+            return {"pairwise": self._pairwise_system}
         return {
             "samplewise": self._samplewise_system,
             "samplewise_with_ref": self._samplewise_system_with_ref,
-            "pairwise": self._pairwise_system,
         }
 
     # ─────────────────────────────────────────────────────────────
@@ -213,6 +241,11 @@ class RubricScorer:
         Returns:
             List of PairwiseRubricResult, one per instruction.
         """
+        if self.mode != "pairwise":
+            raise RuntimeError(
+                "RubricScorer is configured for samplewise mode. "
+                "Instantiate with mode='pairwise' to use score_pairwise()."
+            )
         assert len(instructions) == len(completions_A) == len(completions_B)
         n = len(instructions)
 
@@ -514,6 +547,11 @@ class RubricScorer:
         Returns:
             List of RubricScore objects, one per (instruction, completion) pair.
         """
+        if self.mode != "samplewise":
+            raise RuntimeError(
+                "RubricScorer is configured for pairwise mode. "
+                "Instantiate with mode='samplewise' to use score()."
+            )
         assert len(instructions) == len(completions), (
             f"instructions ({len(instructions)}) and completions ({len(completions)}) "
             "must have the same length"

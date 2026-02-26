@@ -112,7 +112,7 @@ class RubricScore:
     scores: dict[str, float]
     raw_judge_output: str = ""
 
-    def as_vector(self, dimension_names: list[str]) -> list[float]:
+    def to_list(self, dimension_names: list[str]) -> list[float]:
         """Return scores as an ordered vector matching dimension_names."""
         return [self.scores.get(name, 0.0) for name in dimension_names]
 

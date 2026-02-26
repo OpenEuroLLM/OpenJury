@@ -59,6 +59,7 @@ def run_pairwise_rubric_pipeline(
         judge_model=judge_model,
         rubric=rubric,
         provide_explanation=provide_explanation,
+        mode="pairwise",
     )
     pairwise_results = scorer.score_pairwise(
         instructions=instructions,
