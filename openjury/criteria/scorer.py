@@ -3,7 +3,7 @@
 This scorer is intentionally sample-wise only:
 - Each completion is scored independently against the same criteria.
 - Preferences between model A and model B are derived later from weighted
-  criterion averages (no direct pairwise judge call).
+  criterion averages (no direct head-to-head judge call).
 """
 
 from __future__ import annotations

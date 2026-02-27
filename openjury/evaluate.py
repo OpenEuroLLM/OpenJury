@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
-from openjury.criteria.pipeline import run_pairwise_criteria_pipeline
+from openjury.criteria.pipeline import run_samplewise_criteria_pipeline
 from openjury.utils import (
     read_df,
     data_root,
@@ -98,7 +98,6 @@ def evaluate_completions(
     enable_criteria: bool = False,
     criteria_name: str = "default",
     criteria_file: str | None = None,
-    criteria_swap_to_debias: bool = False,
     fit_bradley_terry: bool = False,
     bt_regularization: float = 0.01,
     bt_tie_epsilon: float = 0.05,
@@ -166,80 +165,80 @@ def evaluate_completions(
 
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
-    annotations = annotate_battles(
-        judge_chat_model=judge_chat_model,
-        instructions=instructions.tolist(),
-        completions_A=completions_A.loc[instructions.index].tolist(),
-        completions_B=completions_B.loc[instructions.index].tolist(),
-        use_tqdm=use_tqdm,
-        truncate_input_chars=truncate_input_chars,
-        provide_explanation=provide_explanation,
-    )
-
-    # Legacy pairwise judge results
-    score_parser = PairScore()
-    prefs = pd.Series(
-        [
-            score_parser.parse_model_raw(annotation.judge_completion)
-            for annotation in annotations
-        ]
-    )
-    results = {
-        **_compute_pref_summary(prefs),
-    }
-
-    print(f"{method_A} against {method_B}:\n{results}")
-    print(prefs.tolist())
-
     unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
     output_folder = data_root / "judge-evals" / unique_string
     print(f"Saving results in {output_folder}")
     output_folder.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
-    with open(output_folder / "results.json", "w") as f:
-        json.dump(results, f)
 
     if enable_criteria:
         print(
             f"Running criteria samplewise scoring with criteria '{criteria_name}'."
         )
-        if criteria_swap_to_debias:
-            print("Note: criteria_swap_to_debias is ignored for samplewise criteria scoring.")
-        try:
-            eval_instruction_index = instructions.index.tolist()
-            eval_instructions = instructions.tolist()
-            eval_completions_A = completions_A.loc[instructions.index].tolist()
-            eval_completions_B = completions_B.loc[instructions.index].tolist()
-            run_info = run_pairwise_criteria_pipeline(
-                output_folder=output_folder,
-                output_prefix="",
-                judge_model=judge_chat_model,
-                instructions=eval_instructions,
-                completions_A=eval_completions_A,
-                completions_B=eval_completions_B,
-                instruction_index=eval_instruction_index,
-                model_A_name=method_A,
-                model_B_name=method_B,
-                provide_explanation=provide_explanation,
-                use_tqdm=use_tqdm,
-                criteria_name=criteria_name,
-                criteria_file=criteria_file,
-                swap_to_debias=criteria_swap_to_debias,
-                fit_bradley_terry=fit_bradley_terry,
-                bt_regularization=bt_regularization,
-                bt_tie_epsilon=bt_tie_epsilon,
-                summary_fields={
-                    "dataset": dataset,
-                    "method_A": method_A,
-                    "method_B": method_B,
-                },
-            )
-            print(
-                f"Saved criteria outputs in {output_folder} "
-                f"(prefix: {run_info['prefix']})."
-            )
-        except Exception as e:
-            print(f"Criteria scoring failed: {e}")
+        eval_instruction_index = instructions.index.tolist()
+        eval_instructions = instructions.tolist()
+        eval_completions_A = completions_A.loc[instructions.index].tolist()
+        eval_completions_B = completions_B.loc[instructions.index].tolist()
+        run_info = run_samplewise_criteria_pipeline(
+            output_folder=output_folder,
+            output_prefix="",
+            judge_model=judge_chat_model,
+            instructions=eval_instructions,
+            completions_A=eval_completions_A,
+            completions_B=eval_completions_B,
+            instruction_index=eval_instruction_index,
+            model_A_name=method_A,
+            model_B_name=method_B,
+            provide_explanation=provide_explanation,
+            use_tqdm=use_tqdm,
+            criteria_name=criteria_name,
+            criteria_file=criteria_file,
+            fit_bradley_terry=fit_bradley_terry,
+            bt_regularization=bt_regularization,
+            bt_tie_epsilon=bt_tie_epsilon,
+            summary_fields={
+                "dataset": dataset,
+                "method_A": method_A,
+                "method_B": method_B,
+            },
+        )
+        print(
+            f"Saved criteria outputs in {output_folder} "
+            f"(prefix: {run_info['prefix']})."
+        )
+        prefs = pd.Series(run_info["preferences"], dtype="float64")
+        results = {
+            **_compute_pref_summary(prefs),
+            "scoring_mode": "criteria_samplewise",
+        }
+    else:
+        annotations = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions.tolist(),
+            completions_A=completions_A.loc[instructions.index].tolist(),
+            completions_B=completions_B.loc[instructions.index].tolist(),
+            use_tqdm=use_tqdm,
+            truncate_input_chars=truncate_input_chars,
+            provide_explanation=provide_explanation,
+        )
+
+        # Pairwise judge results
+        score_parser = PairScore()
+        prefs = pd.Series(
+            [
+                score_parser.parse_model_raw(annotation.judge_completion)
+                for annotation in annotations
+            ]
+        )
+        results = {
+            **_compute_pref_summary(prefs),
+            "scoring_mode": "judge_pairwise",
+        }
+        pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
+
+    print(f"{method_A} against {method_B}:\n{results}")
+    print(prefs.tolist())
+    with open(output_folder / "results.json", "w") as f:
+        json.dump(results, f)
 
 
 @dataclass
