@@ -19,11 +19,11 @@ def fake_prompt_loader(monkeypatch):
 
     templates = {
         "criteria_samplewise_system": (
-            "SAMPLEWISE\n{criteria_block}\n{reference_block}\n"
+            "SAMPLEWISE\n{criteria_block}\n"
             "{explanation_block}\n{example_json}"
         ),
         "criteria_samplewise_user": (
-            "Instruction: {instruction}\n{reference_section}\nCompletion: {completion}"
+            "Instruction: {instruction}\nCompletion: {completion}"
         ),
     }
 
@@ -129,7 +129,6 @@ def test_criteria_scorer_loads_samplewise_prompts(fake_prompt_loader):
     assert fake_prompt_loader == ["criteria_samplewise_system", "criteria_samplewise_user"]
     assert set(scorer.system_prompt.keys()) == {
         "samplewise",
-        "samplewise_with_ref",
     }
 
 
@@ -142,6 +141,3 @@ def test_criteria_scorer_validates_lengths(fake_prompt_loader):
     )
     with pytest.raises(AssertionError, match="must have the same length"):
         scorer.score(["i1", "i2"], ["c1"], model_name="dummy")
-
-    with pytest.raises(AssertionError, match="reference_answers"):
-        scorer.score(["i1"], ["c1"], model_name="dummy", reference_answers=[])

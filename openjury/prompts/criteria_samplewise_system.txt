@@ -3,8 +3,6 @@ Score the completion on each criterion below.
 
 {criteria_block}
 
-{reference_block}
-
 Return your scores as a JSON object with the EXACT criterion names shown above as keys and integer scores as values.
 Example:
 ```json

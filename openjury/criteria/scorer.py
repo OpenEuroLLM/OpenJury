@@ -77,17 +77,6 @@ class CriteriaScorer:
         self._samplewise_user_template = load_prompt("criteria_samplewise_user")
         self._samplewise_system = samplewise_system_template.format(
             criteria_block=self.criteria.prompt_block(),
-            reference_block="",  # Filled dynamically when reference is provided
-            explanation_block=explanation_block,
-            example_json=example_json,
-        )
-        self._samplewise_system_with_ref = samplewise_system_template.format(
-            criteria_block=self.criteria.prompt_block(),
-            reference_block=(
-                "You are also given a REFERENCE ANSWER. Use it as an anchor to "
-                "calibrate your scores. A perfect completion should match or exceed "
-                "the reference answer in quality."
-            ),
             explanation_block=explanation_block,
             example_json=example_json,
         )
@@ -97,7 +86,6 @@ class CriteriaScorer:
         """Return formatted sample-wise prompts for reproducibility/debugging."""
         return {
             "samplewise": self._samplewise_system,
-            "samplewise_with_ref": self._samplewise_system_with_ref,
         }
 
     def _normalize_score_keys(self, scores: dict[str, float]) -> dict[str, float]:
@@ -109,21 +97,14 @@ class CriteriaScorer:
         self,
         instructions: list[str],
         completions: list[str],
-        reference_answers: list[str] | None = None,
     ) -> list[list[tuple[str, str]]]:
         """Build chat prompts for sample-wise scoring."""
-        has_ref = reference_answers is not None
-        system = self._samplewise_system_with_ref if has_ref else self._samplewise_system
+        system = self._samplewise_system
 
         prompts = []
-        for i, (instruction, completion) in enumerate(zip(instructions, completions)):
-            ref_section = ""
-            if has_ref and reference_answers[i]:
-                ref_section = f"## Reference Answer\n{reference_answers[i]}"
-
+        for instruction, completion in zip(instructions, completions):
             user_msg = self._samplewise_user_template.format(
                 instruction=instruction,
-                reference_section=ref_section,
                 completion=completion,
             )
             prompts.append([
@@ -173,7 +154,6 @@ class CriteriaScorer:
         model_name: str,
         use_tqdm: bool = False,
         force_async: bool = False,
-        reference_answers: list[str] | None = None,
     ) -> list[CriteriaScore]:
         """Score completions independently (sample-wise) on the criteria."""
         if force_async:
@@ -183,21 +163,14 @@ class CriteriaScorer:
             f"instructions ({len(instructions)}) and completions ({len(completions)}) "
             "must have the same length"
         )
-        if reference_answers is not None:
-            assert len(reference_answers) == len(instructions), (
-                f"reference_answers ({len(reference_answers)}) must match "
-                f"instructions ({len(instructions)})"
-            )
 
-        prompts = self._build_prompts(instructions, completions, reference_answers)
+        prompts = self._build_prompts(instructions, completions)
 
-        mode_label = "sample-wise (with reference)" if reference_answers else "sample-wise"
         logger.info(
-            "Scoring %d completions from %s on %d criteria (%s)",
+            "Scoring %d completions from %s on %d criteria (sample-wise)",
             len(prompts),
             model_name,
             self.criteria.num_criteria,
-            mode_label,
         )
 
         raw_outputs = do_inference(

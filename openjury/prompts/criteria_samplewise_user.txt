@@ -1,8 +1,6 @@
 ## Instruction
 {instruction}
 
-{reference_section}
-
 ## Completion
 {completion}
 
