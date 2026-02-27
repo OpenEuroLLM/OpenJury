@@ -8,6 +8,7 @@ produced artifacts list).
 from __future__ import annotations
 
 import json
+import math
 import os
 import platform
 import re
@@ -31,8 +32,11 @@ def _utc_now() -> datetime:
 
 def _to_jsonable(value: Any) -> Any:
     """Convert arbitrary objects into JSON-safe values."""
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, bool)):
         return value
+    if isinstance(value, float):
+        # JSON standard does not support NaN/Inf; encode as null.
+        return value if math.isfinite(value) else None
     if isinstance(value, (datetime,)):
         return value.isoformat()
     if isinstance(value, Path):
@@ -196,6 +200,22 @@ def _build_input_summary(input_payloads: dict[str, Any] | None) -> dict[str, Any
     return summary
 
 
+def _compact_results(results: dict[str, Any] | None) -> dict[str, Any]:
+    """Compact result payload for metadata storage.
+
+    Keep summary stats but avoid embedding large per-sample arrays.
+    """
+    payload = _to_jsonable(results or {})
+    if not isinstance(payload, dict):
+        return {"value": payload}
+
+    if "preferences" in payload:
+        prefs = payload.pop("preferences")
+        count = len(prefs) if hasattr(prefs, "__len__") else None
+        payload["preferences_count"] = count
+    return payload
+
+
 def write_run_metadata(
     *,
     output_dir: str | Path,
@@ -232,7 +252,7 @@ def write_run_metadata(
         },
         "run": _to_jsonable(run),
         "cli_args": _to_jsonable(cli_args or {}),
-        "results": _to_jsonable(results or {}),
+        "results": _compact_results(results),
         "inputs": _build_input_summary(input_payloads),
         "environment": {
             "python_version": platform.python_version(),
@@ -254,5 +274,5 @@ def write_run_metadata(
 
     metadata_path = output_path / metadata_filename
     with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
+        json.dump(_to_jsonable(metadata), f, indent=2, allow_nan=False)
     return metadata_path

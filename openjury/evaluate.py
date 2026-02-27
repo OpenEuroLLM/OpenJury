@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
-from openjury.repro import write_run_metadata
+from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import (
     read_df,
     data_root,
@@ -176,7 +176,7 @@ def evaluate_completions(
     output_folder.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
     with open(output_folder / "results.json", "w") as f:
-        json.dump(results, f)
+        json.dump(_to_jsonable(results), f, allow_nan=False)
 
     try:
         write_run_metadata(

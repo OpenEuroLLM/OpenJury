@@ -17,7 +17,7 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
-from openjury.repro import write_run_metadata
+from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -383,7 +383,7 @@ def main(args: CliArgs):
 
     # save argument for results analysis
     with open(res_folder / f"args-{name}.json", "w") as f:
-        json.dump(asdict(args), f, indent=2)
+        json.dump(_to_jsonable(asdict(args)), f, indent=2, allow_nan=False)
 
     print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
@@ -448,7 +448,7 @@ def main(args: CliArgs):
     print_results(results)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(_to_jsonable(results), f, indent=2, allow_nan=False)
 
     try:
         eval_instruction_index = instructions.head(n_instructions).index.tolist()
