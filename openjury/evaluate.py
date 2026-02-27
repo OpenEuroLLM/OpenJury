@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
+from openjury.repro import write_run_metadata
 from openjury.utils import (
     read_df,
     data_root,
@@ -88,6 +89,7 @@ def evaluate_completions(
     exceeding context limit
     :return:
     """
+    run_started_at = datetime.now(timezone.utc)
     local_path_tables = data_root / "tables"
     download_hf(name=dataset, local_path=local_path_tables)
 
@@ -175,6 +177,43 @@ def evaluate_completions(
     pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
     with open(output_folder / "results.json", "w") as f:
         json.dump(results, f)
+
+    try:
+        write_run_metadata(
+            output_dir=output_folder,
+            entrypoint="openjury.evaluate.evaluate_completions",
+            run={
+                "dataset": dataset,
+                "method_A": method_A,
+                "method_B": method_B,
+                "n_annotations": len(instructions),
+            },
+            cli_args={
+                "dataset": dataset,
+                "method_A": method_A,
+                "method_B": method_B,
+                "num_annotations": num_annotations,
+                "use_tqdm": use_tqdm,
+                "truncate_input_chars": truncate_input_chars,
+                "provide_explanation": provide_explanation,
+            },
+            results=results,
+            input_payloads={
+                "instruction_index": instructions.index.tolist(),
+                "instructions": instructions.tolist(),
+                "completions_A": completions_A.loc[instructions.index].tolist(),
+                "completions_B": completions_B.loc[instructions.index].tolist(),
+            },
+            extras={
+                "files": {
+                    "annotations": "annotations.csv",
+                    "results": "results.json",
+                }
+            },
+            started_at_utc=run_started_at,
+        )
+    except Exception as e:
+        print(f"Warning: failed to write run metadata: {e}")
 
 
 @dataclass

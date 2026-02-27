@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -17,6 +17,7 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
+from openjury.repro import write_run_metadata
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -252,6 +253,7 @@ def main(args: CliArgs):
     3) create annotations
     """
 
+    run_started_at = datetime.now(timezone.utc)
     print(
         f"Using dataset {args.dataset} and evaluating models {args.model_A} and {args.model_B}."
     )
@@ -447,6 +449,43 @@ def main(args: CliArgs):
 
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
+
+    try:
+        eval_instruction_index = instructions.head(n_instructions).index.tolist()
+        eval_instructions = instructions.head(n_instructions).tolist()
+        eval_completions_A = completions_A.head(n_instructions).tolist()
+        eval_completions_B = completions_B.head(n_instructions).tolist()
+
+        write_run_metadata(
+            output_dir=res_folder,
+            entrypoint="openjury.generate_and_evaluate.main",
+            run={
+                "dataset": args.dataset,
+                "model_A": args.model_A,
+                "model_B": args.model_B,
+                "judge_model": args.judge_model,
+                "swap_mode": args.swap_mode,
+                "n_instructions": n_instructions,
+            },
+            cli_args=asdict(args),
+            results=results,
+            input_payloads={
+                "instruction_index": eval_instruction_index,
+                "instructions": eval_instructions,
+                "completions_A": eval_completions_A,
+                "completions_B": eval_completions_B,
+            },
+            extras={
+                "files": {
+                    "args": f"args-{name}.json",
+                    "annotations": f"{name}-annotations.csv",
+                    "results": f"results-{name}.json",
+                }
+            },
+            started_at_utc=run_started_at,
+        )
+    except Exception as e:
+        print(f"Warning: failed to write run metadata: {e}")
 
     return prefs
 
