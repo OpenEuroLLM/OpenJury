@@ -154,19 +154,16 @@ def _get_git_info(start_path: Path) -> dict[str, Any]:
             "repo_root": None,
             "branch": None,
             "commit": None,
-            "is_dirty": None,
         }
 
     root = Path(repo_root)
     branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
     commit = _run_git(["rev-parse", "HEAD"], cwd=root)
     status = _run_git(["status", "--porcelain"], cwd=root)
-    is_dirty = None if status is None else bool(status.strip())
     return {
         "repo_root": str(root),
         "branch": branch,
         "commit": commit,
-        "is_dirty": is_dirty,
     }
 
 
