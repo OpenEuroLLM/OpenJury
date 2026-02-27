@@ -51,7 +51,7 @@ def load_criteria_from_file(path: str | Path) -> Criteria:
     if path.suffix.lower() != ".json":
         raise ValueError(
             f"Unsupported criteria file format '{path.suffix}'. "
-            "Only .json is supported in this PR."
+            "Only .json is supported."
         )
     return load_criteria_from_json(path)
 
