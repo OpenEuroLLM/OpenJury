@@ -1,4 +1,4 @@
-"""Shared pairwise criteria scoring pipeline helpers."""
+"""Shared criteria scoring pipeline helpers."""
 
 from __future__ import annotations
 
@@ -53,7 +53,12 @@ def run_pairwise_criteria_pipeline(
     bt_tie_epsilon: float = 0.05,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run pairwise criteria scoring and save outputs."""
+    """Run criteria scoring and save outputs.
+
+    This helper currently runs sample-wise scoring for model A and model B
+    independently, then derives preferences from weighted criterion averages.
+    The function name is kept stable for call-site compatibility.
+    """
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -62,17 +67,22 @@ def run_pairwise_criteria_pipeline(
         judge_model=judge_model,
         criteria=criteria,
         provide_explanation=provide_explanation,
-        mode="pairwise",
     )
-    pairwise_results = scorer.score_pairwise(
+    scores_A = scorer.score(
         instructions=instructions,
-        completions_A=completions_A,
-        completions_B=completions_B,
-        swap_to_debias=swap_to_debias,
+        completions=completions_A,
+        model_name=model_A_name,
         use_tqdm=use_tqdm,
     )
-    df_A, df_B, prefs = scorer.pairwise_to_dataframes(
-        pairwise_results,
+    scores_B = scorer.score(
+        instructions=instructions,
+        completions=completions_B,
+        model_name=model_B_name,
+        use_tqdm=use_tqdm,
+    )
+    df_A, df_B, prefs = scorer.samplewise_to_dataframes(
+        scores_A=scores_A,
+        scores_B=scores_B,
         model_A_name=model_A_name,
         model_B_name=model_B_name,
     )
@@ -86,20 +96,23 @@ def run_pairwise_criteria_pipeline(
         {"instruction_index": instruction_index, "preference": prefs.tolist()}
     ).to_csv(output_folder / f"{prefix_base}-preferences.csv", index=False)
 
-    pairwise_rows = []
-    for inst_idx, r in zip(instruction_index, pairwise_results):
+    comparison_rows = []
+    for inst_idx, row_A, row_B, pref in zip(instruction_index, scores_A, scores_B, prefs.tolist()):
         row = {
             "instruction_index": inst_idx,
-            "preference": r.preference,
-            "raw_judge_output": r.raw_judge_output,
-            "raw_judge_output_swapped": r.raw_judge_output_swapped,
+            "preference": pref,
+            "raw_judge_output_A": row_A.raw_judge_output,
+            "raw_judge_output_B": row_B.raw_judge_output,
         }
-        for criterion_name, value in r.scores_A.items():
-            row[f"A_{criterion_name}"] = value
-        for criterion_name, value in r.scores_B.items():
-            row[f"B_{criterion_name}"] = value
-        pairwise_rows.append(row)
-    pd.DataFrame(pairwise_rows).to_csv(output_folder / f"{prefix_base}-pairwise.csv", index=False)
+        for criterion_name in criteria.criterion_names:
+            row[f"A_{criterion_name}"] = row_A.scores.get(criterion_name, float("nan"))
+            row[f"B_{criterion_name}"] = row_B.scores.get(criterion_name, float("nan"))
+        comparison_rows.append(row)
+    # Keep file name stable for downstream compatibility.
+    pd.DataFrame(comparison_rows).to_csv(
+        output_folder / f"{prefix_base}-pairwise.csv",
+        index=False,
+    )
 
     bt_result: dict[str, Any] | None = None
     if fit_bradley_terry:
@@ -137,8 +150,9 @@ def run_pairwise_criteria_pipeline(
         **(summary_fields or {}),
         "criteria_name": criteria.name,
         "criterion_names": criteria.criterion_names,
-        "swap_debiasing": swap_to_debias,
-        "fit_bradley_terry": fit_bradley_terry,
+        "scoring_mode": "samplewise",
+        "swap_debiasing": False,
+        "swap_debiasing_requested": bool(swap_to_debias),
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),

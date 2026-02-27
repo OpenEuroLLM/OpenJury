@@ -205,7 +205,7 @@ class CliArgs:
         parser.add_argument(
             "--enable_criteria",
             action="store_true",
-            help="If specified, run criteria-based pairwise scoring in addition to the legacy pairwise judge output.",
+            help="If specified, run criteria-based samplewise scoring in addition to the legacy pairwise judge output.",
         )
         parser.add_argument(
             "--criteria_name",
@@ -506,10 +506,10 @@ def main(args: CliArgs):
     if args.enable_criteria:
         criteria_label = args.criteria_file if args.criteria_file is not None else args.criteria_name
         print(
-            f"Running criteria pairwise scoring with criteria '{criteria_label}' "
-            f"(swap debiasing={'on' if args.swap_mode == 'both' else 'off'}, "
-            f"bt={'on' if args.fit_bradley_terry else 'off'})."
+            f"Running criteria samplewise scoring with criteria '{criteria_label}'."
         )
+        if args.swap_mode == "both":
+            print("Note: swap_mode='both' does not affect samplewise criteria scoring.")
 
         try:
             eval_instruction_index = instructions.head(n_instructions).index.tolist()

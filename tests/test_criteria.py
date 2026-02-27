@@ -18,12 +18,6 @@ def fake_prompt_loader(monkeypatch):
     loaded_names: list[str] = []
 
     templates = {
-        "criteria_pairwise_system": (
-            "PAIRWISE\n{criteria_block}\n{explanation_block}\n{example_json_pairwise}"
-        ),
-        "criteria_pairwise_user": (
-            "Instruction: {instruction}\nA: {completion_A}\nB: {completion_B}"
-        ),
         "criteria_samplewise_system": (
             "SAMPLEWISE\n{criteria_block}\n{reference_block}\n"
             "{explanation_block}\n{example_json}"
@@ -110,7 +104,7 @@ def test_build_example_scores_uses_criterion_names_and_clamps_to_scale():
     assert scores_dec["wide"] == 1
 
 
-def test_build_example_json_strings_pairwise_shape():
+def test_build_example_json_string_shape():
     criteria = Criteria(
         name="toy",
         criteria=[
@@ -119,56 +113,35 @@ def test_build_example_json_strings_pairwise_shape():
         ],
     )
 
-    example_json, example_pairwise_json = _build_example_json_strings(criteria)
+    example_json = _build_example_json_strings(criteria)
     sample = json.loads(example_json)
-    pairwise = json.loads(example_pairwise_json)
 
     assert set(sample.keys()) == {"overall", "clarity"}
-    assert pairwise["preference"] == "A"
-    assert set(pairwise["scores_A"].keys()) == {"overall", "clarity"}
-    assert set(pairwise["scores_B"].keys()) == {"overall", "clarity"}
 
 
-def test_criteria_scorer_mode_loads_only_needed_prompts(fake_prompt_loader):
+def test_criteria_scorer_loads_samplewise_prompts(fake_prompt_loader):
     criteria = get_criteria("default")
 
-    pairwise_scorer = CriteriaScorer(
+    scorer = CriteriaScorer(
         judge_model=object(),
         criteria=criteria,
-        mode="pairwise",
-    )
-    assert fake_prompt_loader == ["criteria_pairwise_system", "criteria_pairwise_user"]
-    assert set(pairwise_scorer.system_prompt.keys()) == {"pairwise"}
-
-    fake_prompt_loader.clear()
-
-    samplewise_scorer = CriteriaScorer(
-        judge_model=object(),
-        criteria=criteria,
-        mode="samplewise",
     )
     assert fake_prompt_loader == ["criteria_samplewise_system", "criteria_samplewise_user"]
-    assert set(samplewise_scorer.system_prompt.keys()) == {
+    assert set(scorer.system_prompt.keys()) == {
         "samplewise",
         "samplewise_with_ref",
     }
 
 
-def test_criteria_scorer_mode_guards(fake_prompt_loader):
+def test_criteria_scorer_validates_lengths(fake_prompt_loader):
     criteria = get_criteria("default")
 
-    pairwise_scorer = CriteriaScorer(
+    scorer = CriteriaScorer(
         judge_model=object(),
         criteria=criteria,
-        mode="pairwise",
     )
-    with pytest.raises(RuntimeError, match="configured for pairwise mode"):
-        pairwise_scorer.score([], [], model_name="dummy")
+    with pytest.raises(AssertionError, match="must have the same length"):
+        scorer.score(["i1", "i2"], ["c1"], model_name="dummy")
 
-    samplewise_scorer = CriteriaScorer(
-        judge_model=object(),
-        criteria=criteria,
-        mode="samplewise",
-    )
-    with pytest.raises(RuntimeError, match="configured for samplewise mode"):
-        samplewise_scorer.score_pairwise([], [], [])
+    with pytest.raises(AssertionError, match="reference_answers"):
+        scorer.score(["i1"], ["c1"], model_name="dummy", reference_answers=[])
