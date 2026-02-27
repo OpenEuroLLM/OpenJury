@@ -215,7 +215,7 @@ def evaluate_completions(
             provide_explanation=provide_explanation,
         )
 
-        # Legacy pairwise judge results
+        # Pairwise judge results
         score_parser = PairScore()
         prefs = pd.Series(
             [
@@ -225,7 +225,7 @@ def evaluate_completions(
         )
         results = {
             **_compute_pref_summary(prefs),
-            "scoring_mode": "legacy_pairwise",
+            "scoring_mode": "judge_pairwise",
         }
         pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
 

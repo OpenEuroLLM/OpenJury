@@ -76,7 +76,8 @@ It will then display the results of the battles:
 
 ### Criteria Evaluation (Optional)
 
-You can also run criteria-based samplewise scoring in the same pipeline.
+When `--enable_criteria` is set, the pipeline uses criteria-based samplewise
+scoring (instead of direct pairwise judge annotation).
 
 ```bash
 python openjury/generate_and_evaluate.py \
@@ -88,6 +89,8 @@ python openjury/generate_and_evaluate.py \
   --enable_criteria \
   --criteria_name default
 ```
+
+Note: `--swap_mode` applies to pairwise judge annotation only.
 
 To use a custom criteria set, pass a JSON file with a `"criteria"` field:
 

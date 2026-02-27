@@ -202,7 +202,7 @@ class CliArgs:
         parser.add_argument(
             "--enable_criteria",
             action="store_true",
-            help="If specified, run criteria-based samplewise scoring instead of legacy pairwise judge annotation.",
+            help="If specified, run criteria-based samplewise scoring instead of pairwise judge annotation.",
         )
         parser.add_argument(
             "--criteria_name",
@@ -526,7 +526,7 @@ def main(args: CliArgs):
             "preferences": prefs.tolist(),
             "date": str(datetime.now().isoformat()),
             "user": os.getenv("USER", ""),
-            "scoring_mode": "legacy_pairwise",
+            "scoring_mode": "judge_pairwise",
         }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
