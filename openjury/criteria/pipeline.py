@@ -32,7 +32,7 @@ def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
     }
 
 
-def run_pairwise_criteria_pipeline(
+def run_samplewise_criteria_pipeline(
     *,
     output_folder: str | Path,
     output_prefix: str,
@@ -50,7 +50,7 @@ def run_pairwise_criteria_pipeline(
     swap_to_debias: bool = False,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run criteria scoring and save outputs.
+    """Run samplewise criteria scoring and save outputs.
 
     This helper currently runs sample-wise scoring for model A and model B
     independently, then derives preferences from weighted criterion averages.
@@ -105,9 +105,9 @@ def run_pairwise_criteria_pipeline(
             row[f"A_{criterion_name}"] = row_A.scores.get(criterion_name, float("nan"))
             row[f"B_{criterion_name}"] = row_B.scores.get(criterion_name, float("nan"))
         comparison_rows.append(row)
-    # Keep file name stable for downstream compatibility.
+    # Comparison table derived from independent samplewise scores.
     pd.DataFrame(comparison_rows).to_csv(
-        output_folder / f"{prefix_base}-pairwise.csv",
+        output_folder / f"{prefix_base}-comparison.csv",
         index=False,
     )
 

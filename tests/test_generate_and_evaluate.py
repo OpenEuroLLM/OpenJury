@@ -107,7 +107,7 @@ def test_generate_and_evaluate_criteria_outputs_with_criteria_file(tmp_path, mon
         )
     )
 
-    def fake_run_pairwise_criteria_pipeline(**kwargs):
+    def fake_run_samplewise_criteria_pipeline(**kwargs):
         assert kwargs["criteria_file"] == str(criteria_file_path)
         # criteria_file should override criteria_name later in the shared helper
         assert kwargs["criteria_name"] == "overall"
@@ -128,8 +128,8 @@ def test_generate_and_evaluate_criteria_outputs_with_criteria_file(tmp_path, mon
 
     monkeypatch.setattr(
         generate_and_evaluate,
-        "run_pairwise_criteria_pipeline",
-        fake_run_pairwise_criteria_pipeline,
+        "run_samplewise_criteria_pipeline",
+        fake_run_samplewise_criteria_pipeline,
     )
 
     prefs = main_generate_and_eval(

@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
-from openjury.criteria.pipeline import run_pairwise_criteria_pipeline
+from openjury.criteria.pipeline import run_samplewise_criteria_pipeline
 from openjury.utils import (
     read_df,
     data_root,
@@ -207,7 +207,7 @@ def evaluate_completions(
             eval_instructions = instructions.tolist()
             eval_completions_A = completions_A.loc[instructions.index].tolist()
             eval_completions_B = completions_B.loc[instructions.index].tolist()
-            run_info = run_pairwise_criteria_pipeline(
+            run_info = run_samplewise_criteria_pipeline(
                 output_folder=output_folder,
                 output_prefix="",
                 judge_model=judge_chat_model,

@@ -17,7 +17,7 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
-from openjury.criteria.pipeline import run_pairwise_criteria_pipeline
+from openjury.criteria.pipeline import run_samplewise_criteria_pipeline
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -494,7 +494,7 @@ def main(args: CliArgs):
             eval_completions_A = completions_A.head(n_instructions).tolist()
             eval_completions_B = completions_B.head(n_instructions).tolist()
 
-            run_info = run_pairwise_criteria_pipeline(
+            run_info = run_samplewise_criteria_pipeline(
                 output_folder=res_folder,
                 output_prefix=name,
                 judge_model=judge_chat_model,
