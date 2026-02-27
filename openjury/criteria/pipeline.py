@@ -47,7 +47,6 @@ def run_samplewise_criteria_pipeline(
     use_tqdm: bool = False,
     criteria_name: str = "default",
     criteria_file: str | Path | None = None,
-    swap_to_debias: bool = False,
     summary_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run samplewise criteria scoring and save outputs.
@@ -116,8 +115,6 @@ def run_samplewise_criteria_pipeline(
         "criteria_name": criteria.name,
         "criterion_names": criteria.criterion_names,
         "scoring_mode": "samplewise",
-        "swap_debiasing": False,
-        "swap_debiasing_requested": bool(swap_to_debias),
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),

@@ -76,7 +76,7 @@ It will then display the results of the battles:
 
 ### Criteria Evaluation (Optional)
 
-You can also run criteria-based pairwise scoring in the same pipeline.
+You can also run criteria-based samplewise scoring in the same pipeline.
 
 ```bash
 python openjury/generate_and_evaluate.py \

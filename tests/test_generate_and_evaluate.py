@@ -112,8 +112,9 @@ def test_generate_and_evaluate_criteria_outputs_with_criteria_file(tmp_path, mon
         # criteria_file should override criteria_name later in the shared helper
         assert kwargs["criteria_name"] == "overall"
         out_dir = kwargs["output_folder"]
+        prefs = [0.0] * len(kwargs["instruction_index"])
         prefix = f"{kwargs['output_prefix']}-criteria-my_custom"
-        pd.DataFrame({"instruction_index": kwargs["instruction_index"], "preference": [0.0] * len(kwargs["instruction_index"])}).to_csv(
+        pd.DataFrame({"instruction_index": kwargs["instruction_index"], "preference": prefs}).to_csv(
             out_dir / f"{prefix}-preferences.csv",
             index=False,
         )
@@ -124,12 +125,19 @@ def test_generate_and_evaluate_criteria_outputs_with_criteria_file(tmp_path, mon
                 },
                 f,
             )
-        return {"prefix": prefix}
+        return {"prefix": prefix, "preferences": prefs}
 
     monkeypatch.setattr(
         generate_and_evaluate,
         "run_samplewise_criteria_pipeline",
         fake_run_samplewise_criteria_pipeline,
+    )
+    monkeypatch.setattr(
+        generate_and_evaluate,
+        "annotate_battles",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("annotate_battles should not run when enable_criteria=True")
+        ),
     )
 
     prefs = main_generate_and_eval(
