@@ -1,19 +1,20 @@
 """Reproducibility metadata helpers.
 
 Writes a compact, versioned run metadata file that captures enough context to
-reproduce a run (inputs fingerprint, args, dependency versions, git state,
-artifacts and hashes).
+reproduce a run (args, dependency versions, git state, environment and
+produced artifacts list).
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
+import tomllib
 from datetime import datetime, timezone
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -21,20 +22,7 @@ from typing import Any
 
 METADATA_FILENAME = "run-metadata.v1.json"
 METADATA_SCHEMA_VERSION = "openjury-run-metadata/v1"
-
-_DEFAULT_DEPENDENCIES: list[tuple[str, str]] = [
-    ("langchain", "langchain"),
-    ("langchain_core", "langchain-core"),
-    ("langchain_community", "langchain-community"),
-    ("langchain_openai", "langchain-openai"),
-    ("langchain_together", "langchain-together"),
-    ("vllm", "vllm"),
-    ("transformers", "transformers"),
-    ("datasets", "datasets"),
-    ("numpy", "numpy"),
-    ("pandas", "pandas"),
-    ("scikit_learn", "scikit-learn"),
-]
+_REQUIREMENT_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)")
 
 
 def _utc_now() -> datetime:
@@ -67,30 +55,77 @@ def _stable_json_dumps(value: Any) -> str:
     return json.dumps(_to_jsonable(value), sort_keys=True, separators=(",", ":"))
 
 
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def _extract_dist_name(requirement_spec: str) -> str | None:
+    match = _REQUIREMENT_NAME_RE.match(requirement_spec or "")
+    if not match:
+        return None
+    return match.group(1)
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def _dependency_names_from_pyproject(repo_root: Path) -> list[str]:
+    pyproject = repo_root / "pyproject.toml"
+    if not pyproject.exists():
+        return []
+
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    project = data.get("project", {})
+    names: set[str] = set()
+
+    for spec in project.get("dependencies", []) or []:
+        dist = _extract_dist_name(spec)
+        if dist:
+            names.add(dist)
+
+    optional = project.get("optional-dependencies", {}) or {}
+    for specs in optional.values():
+        for spec in specs or []:
+            dist = _extract_dist_name(spec)
+            if dist:
+                names.add(dist)
+
+    return sorted(names)
+
+
+def _project_dependency_names(start_path: Path) -> list[str]:
+    names: set[str] = set()
+
+    # Prefer installed project metadata when available.
+    try:
+        dist = importlib_metadata.distribution("llm-judge-eval")
+        for req in dist.requires or []:
+            dep = _extract_dist_name(req)
+            if dep:
+                names.add(dep)
+    except Exception:
+        pass
+
+    if names:
+        return sorted(names)
+
+    # Fallback: parse pyproject dependencies from repo root.
+    repo_root = _run_git(["rev-parse", "--show-toplevel"], cwd=start_path)
+    if repo_root is None:
+        return []
+    return _dependency_names_from_pyproject(Path(repo_root))
 
 
 def _get_dependency_versions(
-    dependencies: list[tuple[str, str]] | None = None,
+    dependencies: list[str] | None = None,
+    start_path: Path | None = None,
 ) -> dict[str, str | None]:
-    deps = dependencies or _DEFAULT_DEPENDENCIES
+    dep_names = dependencies or _project_dependency_names(start_path or Path.cwd())
     versions: dict[str, str | None] = {}
-    for key, dist_name in deps:
+    for dist_name in dep_names:
         try:
-            versions[key] = importlib_metadata.version(dist_name)
+            versions[dist_name] = importlib_metadata.version(dist_name)
         except importlib_metadata.PackageNotFoundError:
-            versions[key] = None
+            versions[dist_name] = None
         except Exception:
-            versions[key] = None
+            versions[dist_name] = None
     return versions
 
 
@@ -139,39 +174,26 @@ def _collect_artifacts(output_dir: Path, metadata_filename: str) -> list[dict[st
         if path.name == metadata_filename:
             continue
         rel = path.relative_to(output_dir)
-        try:
-            digest = _sha256_file(path)
-        except Exception:
-            digest = None
         artifacts.append(
             {
                 "path": str(rel),
                 "size_bytes": path.stat().st_size,
-                "sha256": digest,
             }
         )
     return artifacts
 
 
-def _build_input_fingerprints(input_payloads: dict[str, Any] | None) -> dict[str, Any]:
+def _build_input_summary(input_payloads: dict[str, Any] | None) -> dict[str, Any]:
     if not input_payloads:
         return {}
-    fingerprints: dict[str, Any] = {}
+    summary: dict[str, Any] = {}
     for key, payload in input_payloads.items():
-        try:
-            normalized = _to_jsonable(payload)
-            serialized = _stable_json_dumps(normalized)
-            count = len(normalized) if hasattr(normalized, "__len__") else None
-            fingerprints[key] = {
-                "sha256": _sha256_text(serialized),
-                "count": count,
-            }
-        except Exception:
-            fingerprints[key] = {
-                "sha256": None,
-                "count": None,
-            }
-    return fingerprints
+        normalized = _to_jsonable(payload)
+        count = len(normalized) if hasattr(normalized, "__len__") else None
+        summary[key] = {
+            "count": count,
+        }
+    return summary
 
 
 def write_run_metadata(
@@ -211,27 +233,26 @@ def write_run_metadata(
         "run": _to_jsonable(run),
         "cli_args": _to_jsonable(cli_args or {}),
         "results": _to_jsonable(results or {}),
-        "input_fingerprints": _build_input_fingerprints(input_payloads),
+        "inputs": _build_input_summary(input_payloads),
         "environment": {
             "python_version": platform.python_version(),
             "platform": platform.platform(),
             "hostname": socket.gethostname(),
             "user": os.getenv("USER", None),
         },
-        "dependencies": _get_dependency_versions(),
+        "dependencies": _get_dependency_versions(
+            start_path=Path(__file__).resolve().parent
+        ),
         "git": _get_git_info(start_path=Path(__file__).resolve().parent),
     }
     if extras:
         metadata["extras"] = _to_jsonable(extras)
 
-    artifacts = _collect_artifacts(output_path, metadata_filename=metadata_filename)
-    metadata["artifacts"] = artifacts
-    metadata["artifacts_fingerprint_sha256"] = _sha256_text(
-        _stable_json_dumps(artifacts)
+    metadata["artifacts"] = _collect_artifacts(
+        output_path, metadata_filename=metadata_filename
     )
 
     metadata_path = output_path / metadata_filename
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
     return metadata_path
-
