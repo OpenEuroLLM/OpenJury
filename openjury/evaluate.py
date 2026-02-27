@@ -201,8 +201,7 @@ def evaluate_completions(
 
     if enable_criteria:
         print(
-            f"Running criteria pairwise scoring with criteria '{criteria_file if criteria_file is not None else criteria_name}' "
-            f"(swap debiasing={'on' if criteria_swap_to_debias else 'off'})."
+            f"Running criteria samplewise scoring with criteria '{criteria_name}'."
         )
         if criteria_swap_to_debias:
             print("Note: criteria_swap_to_debias is ignored for samplewise criteria scoring.")
