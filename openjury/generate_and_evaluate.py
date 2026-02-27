@@ -439,6 +439,9 @@ def main(args: CliArgs):
             use_tqdm=args.use_tqdm,
             criteria_name=args.criteria_name,
             criteria_file=args.criteria_file,
+            fit_bradley_terry=args.fit_bradley_terry,
+            bt_regularization=args.bt_regularization,
+            bt_tie_epsilon=args.bt_tie_epsilon,
             summary_fields={
                 "dataset": args.dataset,
                 "model_A": args.model_A,
