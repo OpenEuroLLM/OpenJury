@@ -1,8 +1,5 @@
 import pandas as pd
-import pandas as pd
 import pytest
-
-import openjury.generate_and_evaluate as generate_and_evaluate
 
 import openjury.generate_and_evaluate as generate_and_evaluate
 from openjury.generate_and_evaluate import (
