@@ -8,7 +8,6 @@ from typing import Callable
 from huggingface_hub import snapshot_download
 import pandas as pd
 from tqdm.asyncio import tqdm
-from langchain_community.llms import LlamaCpp
 from langchain_openai import ChatOpenAI
 from langchain_community.cache import SQLiteCache
 from langchain_core.globals import set_llm_cache
@@ -136,7 +135,122 @@ class DummyModel:
         return self.message
 
 
-class ChatVLLM:
+class BaseLocalModel:
+    """Shared prompt conversion and invoke helpers for local model wrappers."""
+
+    def _to_messages(self, input_item) -> list[dict]:
+        """Convert LangChain prompt input to OpenAI-style messages."""
+        role_map = {"human": "user", "ai": "assistant", "system": "system"}
+
+        if hasattr(input_item, "to_messages"):
+            lc_messages = input_item.to_messages()
+            return [
+                {"role": role_map.get(msg.type, msg.type), "content": msg.content}
+                for msg in lc_messages
+            ]
+        elif (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], tuple)
+        ):
+            return [
+                {"role": role if role != "human" else "user", "content": content}
+                for role, content in input_item
+            ]
+        elif (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], dict)
+        ):
+            return input_item
+        elif isinstance(input_item, str):
+            return [{"role": "user", "content": input_item}]
+        else:
+            raise ValueError(f"Unsupported input type: {type(input_item)}")
+
+    def _to_raw_text(self, input_item) -> str:
+        """Extract raw text from an input item for text-completion mode."""
+        if isinstance(input_item, str):
+            return input_item
+        if hasattr(input_item, "to_string"):
+            return input_item.to_string()
+        if isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+            return "\n".join(msg["content"] for msg in input_item)
+        raise ValueError(f"Cannot extract raw text from: {type(input_item)}")
+
+    def invoke(self, input_item, **invoke_kwargs) -> str:
+        return self.batch([input_item], **invoke_kwargs)[0]
+
+    async def ainvoke(self, input_item, **invoke_kwargs):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.invoke(input_item, **invoke_kwargs)
+        )
+
+
+class ChatLlamaCppModel(BaseLocalModel):
+    """LlamaCpp wrapper that auto-detects and applies the GGUF chat template.
+
+    Mirrors the ChatVLLM pattern but for local GGUF models via llama-cpp-python.
+
+    Chat template handling:
+        - If the GGUF file embeds a chat template (typical for instruct models),
+          uses ``create_chat_completion()`` which applies the template and
+          handles EOS tokens correctly.
+        - If no template is found (base/pretrained models), falls back to
+          ``create_completion()`` (text mode) and emits a warning.
+
+    Unlike langchain's ``ChatLlamaCpp``, this wrapper explicitly calls
+    ``Llama.reset()`` between conversations to clear stale KV-cache state.
+    """
+
+    def __init__(self, model_path: str, max_tokens: int = 1024, n_ctx: int = 0, **kwargs):
+        from llama_cpp import Llama
+
+        self.model_path = model_path
+        self.max_tokens = max_tokens
+        self.llama = Llama(
+            model_path=model_path,
+            n_ctx=n_ctx,
+            verbose=True,
+            **kwargs,
+        )
+
+        chat_template = self.llama.metadata.get("tokenizer.chat_template")
+        if chat_template:
+            self._use_generate = False
+            print(f"ChatLlamaCppModel: using GGUF chat template for '{model_path}'")
+        else:
+            self._use_generate = True
+            warnings.warn(
+                f"Model '{model_path}' does not embed a chat template. "
+                f"Falling back to text-completion mode (no chat formatting). "
+                f"Override with --chat_template if this model needs one.",
+            )
+
+    def batch(self, inputs: list, **kwargs) -> list[str]:
+        """Process a batch of inputs, resetting KV cache between conversations."""
+        results = []
+        for inp in inputs:
+            self.llama.reset()
+            if self._use_generate:
+                text = self._to_raw_text(inp)
+                response = self.llama.create_completion(
+                    prompt=text,
+                    max_tokens=self.max_tokens,
+                )
+                results.append(response["choices"][0]["text"])
+            else:
+                messages = self._to_messages(inp)
+                response = self.llama.create_chat_completion(
+                    messages=messages,
+                    max_tokens=self.max_tokens,
+                )
+                results.append(response["choices"][0]["message"]["content"])
+        return results
+
+
+class ChatVLLM(BaseLocalModel):
     """VLLM wrapper that auto-detects whether to use chat() or generate().
 
     Chat template handling:
@@ -209,53 +323,6 @@ class ChatVLLM:
                 self._use_generate = False
                 print(f"ChatVLLM: using tokenizer's chat template for '{model}'")
 
-    def _to_messages(self, input_item) -> list[dict]:
-        """Convert LangChain prompt input to OpenAI-style messages."""
-        # Map LangChain message types to OpenAI roles
-        role_map = {"human": "user", "ai": "assistant", "system": "system"}
-
-        # Handle ChatPromptValue from LangChain
-        if hasattr(input_item, "to_messages"):
-            lc_messages = input_item.to_messages()
-            return [
-                {"role": role_map.get(msg.type, msg.type), "content": msg.content}
-                for msg in lc_messages
-            ]
-        # Handle list of tuples like [("system", "..."), ("user", "...")]
-        elif (
-            isinstance(input_item, list)
-            and input_item
-            and isinstance(input_item[0], tuple)
-        ):
-            return [
-                {"role": role if role != "human" else "user", "content": content}
-                for role, content in input_item
-            ]
-        # Handle already formatted messages
-        elif (
-            isinstance(input_item, list)
-            and input_item
-            and isinstance(input_item[0], dict)
-        ):
-            return input_item
-        # Handle plain string (wrap as user message)
-        elif isinstance(input_item, str):
-            return [{"role": "user", "content": input_item}]
-        else:
-            raise ValueError(f"Unsupported input type: {type(input_item)}")
-
-    def _to_raw_text(self, input_item) -> str:
-        """Extract raw text from an input item for use with llm.generate()."""
-        if isinstance(input_item, str):
-            return input_item
-        # ChatPromptValue from LangChain
-        if hasattr(input_item, "to_string"):
-            return input_item.to_string()
-        # List of dicts (messages) - concatenate contents
-        if isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
-            return "\n".join(msg["content"] for msg in input_item)
-        raise ValueError(f"Cannot extract raw text from: {type(input_item)}")
-
     def batch(self, inputs: list, **invoke_kwargs) -> list[str]:
         """Process a batch of inputs using vllm.LLM.chat() or llm.generate().
 
@@ -274,20 +341,6 @@ class ChatVLLM:
                 chat_template=self.chat_template,
             )
         return [out.outputs[0].text for out in outputs]
-
-    def invoke(self, input_item, **invoke_kwargs) -> str:
-        """Process a single input."""
-        results = self.batch([input_item], **invoke_kwargs)
-        return results[0]
-
-    async def ainvoke(self, input_item, **invoke_kwargs):
-        """Async version - runs sync version in executor for compatibility."""
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, lambda: self.invoke(input_item, **invoke_kwargs)
-        )
 
 
 def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
@@ -332,15 +385,15 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
             model=model_name,
             **model_kwargs,
         )
+    elif model_provider == "LlamaCpp":
+        model_kwargs["model_path"] = model_name
+        model_kwargs.setdefault("n_ctx", 0)
+        return ChatLlamaCppModel(**model_kwargs)
     else:
         model_classes = [
-            LlamaCpp,
             ChatOpenAI,
         ]
-        if model_provider == "LlamaCpp":
-            model_kwargs["model_path"] = model_name
-        else:
-            model_kwargs["model"] = model_name
+        model_kwargs["model"] = model_name
 
         try:
             from langchain_together.llms import Together
@@ -366,6 +419,18 @@ def download_all():
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)
+
+    # MT-Bench questions live in the LMSYS HuggingFace space.
+    snapshot_download(
+        repo_id="lmsys/mt-bench",
+        repo_type="space",
+        allow_patterns=[
+            "data/mt_bench/question.jsonl",
+            "data/mt_bench/reference_answer/*",
+        ],
+        local_dir=data_root / "mt-bench",
+        force_download=False,
+    )
 
     snapshot_download(
         repo_id="geoalgo/multilingual-contexts-to-be-completed",
