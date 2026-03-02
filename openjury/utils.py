@@ -14,7 +14,6 @@ from langchain_core.globals import set_llm_cache
 
 data_root = Path(
     os.environ.get("OPENJURY_DATA", Path("~/openjury-data/").expanduser())
-    os.environ.get("OPENJURY_DATA", Path("~/openjury-data/").expanduser())
 ).expanduser()
 
 
