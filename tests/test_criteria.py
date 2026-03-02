@@ -38,7 +38,7 @@ def fake_prompt_loader(monkeypatch):
         except KeyError as exc:
             raise AssertionError(f"Unexpected prompt requested: {name}") from exc
 
-    monkeypatch.setattr(scorer_module, "load_prompt", fake_load_prompt)
+    monkeypatch.setattr(scorer_module, "_load_prompt_text", fake_load_prompt)
     return loaded_names
 
 

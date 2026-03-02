@@ -67,7 +67,7 @@ class CriteriaScore:
     instruction_index: int | str
     model: str
     scores: dict[str, float]
-    raw_judge_output: str = ""
+    raw_judge_output: str | None = None
 
     def to_list(self, criterion_names: list[str]) -> list[float]:
         """Return scores as an ordered vector matching criterion_names."""

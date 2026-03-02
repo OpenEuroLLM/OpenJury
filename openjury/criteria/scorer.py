@@ -11,12 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from importlib.resources import files
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
-from openjury.prompts import load_prompt
 from openjury.criteria.schema import (
     SCALE_MAX,
     SCALE_MIN,
@@ -51,6 +50,11 @@ def _build_example_json_strings(criteria: list[Criterion]) -> str:
     return json.dumps(example)
 
 
+def _load_prompt_text(name: str) -> str:
+    """Load a bundled prompt template by stem name."""
+    return files("openjury.prompts").joinpath(f"{name}.txt").read_text(encoding="utf-8")
+
+
 class CriteriaScorer:
     """Score completions along a criteria set using an LLM judge.
 
@@ -80,8 +84,8 @@ class CriteriaScorer:
         )
 
         example_json = _build_example_json_strings(criteria)
-        samplewise_system_template = load_prompt("criteria_samplewise_system")
-        self._samplewise_user_template = load_prompt("criteria_samplewise_user")
+        samplewise_system_template = _load_prompt_text("criteria_samplewise_system")
+        self._samplewise_user_template = _load_prompt_text("criteria_samplewise_user")
         self._samplewise_system = samplewise_system_template.format(
             criteria_block=prompt_block(self.criteria),
             explanation_block=explanation_block,

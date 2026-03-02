@@ -35,6 +35,7 @@ exclude = ["slurmpilot_scripts*"]
 
 [tool.setuptools.package-data]
 "openjury.criteria" = ["data/*.yaml"]
+"openjury.prompts" = ["*.txt"]
 
 [dependency-groups]
 dev = [
