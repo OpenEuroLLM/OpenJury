@@ -75,7 +75,7 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
-
+    ngpus: int = 1
     result_folder: str = "results"
 
     def __post_init__(self):
@@ -195,6 +195,13 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
+        parser.add_argument(
+            "--ngpus",
+            type=int,
+            required=False,
+            default=1,
+            help="Number of GPUs to use for the evaluation. Only used for VLLM models.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -213,6 +220,7 @@ class CliArgs:
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
             result_folder=args.result_folder,
+            ngpus=args.ngpus,
         )
 
 
@@ -284,9 +292,24 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len, chat_template=args.chat_template)
+        partial(
+            generate_base,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            ngpus=args.ngpus,
+            use_tqdm=args.use_tqdm,
+        )
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template, max_model_len=args.max_model_len)
+        else partial(generate_instructions,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            chat_template=args.chat_template,
+            max_model_len=args.max_model_len,
+            ngpus=args.ngpus,
+            use_tqdm=args.use_tqdm,
+        )
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
@@ -331,6 +354,7 @@ def main(args: CliArgs):
 
     judge_chat_model = make_model(
         model=args.judge_model,
+        ngpus=args.ngpus,
         max_tokens=args.max_out_tokens_judge,
         max_model_len=args.max_model_len,
         chat_template=args.chat_template,

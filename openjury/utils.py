@@ -290,7 +290,7 @@ class ChatVLLM:
         )
 
 
-def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
+def make_model(model: str, max_tokens: int | None = 8192, ngpus: int = 1, **kwargs):
     """Instantiate a model wrapper from a provider/model-name string.
 
     Args:
@@ -313,6 +313,10 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
     if model_provider == "VLLM":
         chat_template = kwargs.pop("chat_template", None)
         vllm_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        if ngpus > 1:
+            vllm_kwargs["tensor_parallel_size"] = ngpus
+
         return ChatVLLM(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
