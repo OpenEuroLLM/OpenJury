@@ -268,7 +268,7 @@ def print_results(results):
         print(f"  {'-' * 14}-+-{'-' * 11}-+-{'-' * 4}-+-{'-' * 6}-+-{'-' * 4}")
         for cat, stats in sorted(per_category.items()):
             print(
-                f"  {cat:<14} | {stats['winrate']:>10.1%} | "
+                f"  {cat:<14} | {stats['winrate']:>11.1%} | "
                 f"{stats['num_wins']:>4} | {stats['num_losses']:>6} | {stats['num_ties']:>4}"
             )
 
