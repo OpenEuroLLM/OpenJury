@@ -3,9 +3,13 @@ import json
 import pytest
 
 import openjury.criteria.scorer as scorer_module
-from openjury.criteria.defaults import get_criteria
-from openjury.criteria.io import load_criteria_from_json
-from openjury.criteria.schema import Criterion, Criteria
+from openjury.criteria.defaults import CRITERIA_BY_NAME
+from openjury.criteria.io import (
+    load_criteria_from_file,
+    load_criteria_from_json,
+    load_criteria_from_yaml,
+)
+from openjury.criteria.schema import SCALE_MAX, SCALE_MIN, Criterion, criterion_names
 from openjury.criteria.scorer import (
     CriteriaScorer,
     _build_example_json_strings,
@@ -39,10 +43,16 @@ def fake_prompt_loader(monkeypatch):
 
 
 def test_get_default_criteria():
-    criteria = get_criteria("default")
-    assert criteria.name == "default"
-    assert len(criteria.criteria) > 0
-    assert len(criteria.criterion_names) == criteria.num_criteria
+    criteria = CRITERIA_BY_NAME["default"]
+    assert len(criteria) > 0
+    assert criterion_names(criteria) == [
+        "adherence",
+        "helpfulness",
+        "factuality",
+        "completeness",
+        "clarity",
+        "fluency",
+    ]
 
 
 def test_load_criteria_from_json_requires_criteria_key(tmp_path):
@@ -77,41 +87,77 @@ def test_load_criteria_from_json_supports_criteria_key(tmp_path):
     )
 
     criteria = load_criteria_from_json(path)
-    assert criteria.name == "criteria_criteria"
-    assert criteria.criterion_names == ["clarity", "correctness"]
+    assert criterion_names(criteria) == ["clarity", "correctness"]
+
+
+def test_load_criteria_from_yaml_supports_criteria_key(tmp_path):
+    path = tmp_path / "criteria.yaml"
+    path.write_text(
+        """
+name: yaml_criteria
+criteria:
+  - name: clarity
+    description: Clarity
+  - name: correctness
+    description: Correctness
+"""
+    )
+
+    criteria = load_criteria_from_yaml(path)
+    assert criterion_names(criteria) == ["clarity", "correctness"]
+
+
+def test_load_criteria_from_file_supports_yaml_and_yml(tmp_path):
+    content = """
+name: file_loader
+criteria:
+  - name: overall
+    description: Overall quality
+"""
+    yaml_path = tmp_path / "criteria.yaml"
+    yml_path = tmp_path / "criteria.yml"
+    yaml_path.write_text(content)
+    yml_path.write_text(content)
+
+    criteria_yaml = load_criteria_from_file(yaml_path)
+    criteria_yml = load_criteria_from_file(yml_path)
+
+    assert criterion_names(criteria_yaml) == ["overall"]
+    assert criterion_names(criteria_yml) == ["overall"]
+
+
+def test_load_criteria_from_file_rejects_unknown_extension(tmp_path):
+    path = tmp_path / "criteria.txt"
+    path.write_text("{}")
+    with pytest.raises(ValueError, match="Unsupported criteria file format"):
+        load_criteria_from_file(path)
 
 
 def test_build_example_scores_uses_criterion_names_and_clamps_to_scale():
-    criteria = Criteria(
-        name="toy",
-        criteria=[
-            Criterion(name="tiny", description="tiny scale", scale_min=0, scale_max=2),
-            Criterion(name="tight", description="tight scale", scale_min=8, scale_max=9),
-            Criterion(name="wide", description="wide scale", scale_min=1, scale_max=10),
-        ],
-    )
+    criteria = [
+        Criterion(name="tiny", description="tiny scale"),
+        Criterion(name="tight", description="tight scale"),
+        Criterion(name="wide", description="wide scale"),
+    ]
 
     scores = _build_example_scores(criteria)
     scores_dec = _build_example_scores(criteria, decrement=10)
 
     assert set(scores.keys()) == {"tiny", "tight", "wide"}
-    assert scores["tiny"] == 2  # seed value clamps to scale_max
-    assert scores["tight"] == 8  # seed value lands in the tight range
-    assert 1 <= scores["wide"] <= 10
+    assert scores["tiny"] == 7
+    assert scores["tight"] == 8
+    assert SCALE_MIN <= scores["wide"] <= SCALE_MAX
 
-    assert scores_dec["tiny"] == 0  # decremented value clamps to scale_min
-    assert scores_dec["tight"] == 8
-    assert scores_dec["wide"] == 1
+    assert scores_dec["tiny"] == SCALE_MIN
+    assert scores_dec["tight"] == SCALE_MIN
+    assert scores_dec["wide"] == SCALE_MIN
 
 
 def test_build_example_json_string_shape():
-    criteria = Criteria(
-        name="toy",
-        criteria=[
-            Criterion(name="overall", description="overall quality"),
-            Criterion(name="clarity", description="clarity"),
-        ],
-    )
+    criteria = [
+        Criterion(name="overall", description="overall quality"),
+        Criterion(name="clarity", description="clarity"),
+    ]
 
     example_json = _build_example_json_strings(criteria)
     sample = json.loads(example_json)
@@ -120,7 +166,7 @@ def test_build_example_json_string_shape():
 
 
 def test_criteria_scorer_loads_samplewise_prompts(fake_prompt_loader):
-    criteria = get_criteria("default")
+    criteria = CRITERIA_BY_NAME["default"]
 
     scorer = CriteriaScorer(
         judge_model=object(),
@@ -133,7 +179,7 @@ def test_criteria_scorer_loads_samplewise_prompts(fake_prompt_loader):
 
 
 def test_criteria_scorer_validates_lengths(fake_prompt_loader):
-    criteria = get_criteria("default")
+    criteria = CRITERIA_BY_NAME["default"]
 
     scorer = CriteriaScorer(
         judge_model=object(),

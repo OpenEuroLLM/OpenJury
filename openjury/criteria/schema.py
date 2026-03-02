@@ -1,111 +1,68 @@
-"""Schema for multi-criteria evaluation.
-
-Defines data structures for criteria sets, individual criteria,
-and per-completion criteria scores.
-"""
+"""Schema for multi-criteria evaluation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
+
+SCALE_MIN = 1
+SCALE_MAX = 10
 
 
 @dataclass
 class Criterion:
-    """A single scoring criterion in a criteria set.
-
-    Attributes:
-        name: Short identifier (e.g. "fluency", "usefulness").
-        description: Human-readable description shown to the judge.
-        scale_min: Minimum score (inclusive).
-        scale_max: Maximum score (inclusive).
-        weight: Optional prior weight for aggregation (not used in BT fitting).
-        score_references: Optional score anchors shown to the judge in the prompt.
-            Mapping ``score -> description`` (e.g. ``{7: "...", 5: "...", 3: "...", 1: "..."}``).
-    """
+    """A single scoring criterion."""
 
     name: str
     description: str
-    scale_min: int = 1
-    scale_max: int = 10
-    weight: float = 1.0
     score_references: dict[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.scale_min >= self.scale_max:
-            raise ValueError(
-                f"Invalid criteria scale for '{self.name}': "
-                f"{self.scale_min} > {self.scale_max}"
-            )
-
-        # JSON object keys arrive as strings; normalize to ints.
         normalized: dict[int, str] = {}
         for raw_score, text in self.score_references.items():
             score = int(raw_score)
-            if not (self.scale_min <= score <= self.scale_max):
+            if not (SCALE_MIN <= score <= SCALE_MAX):
                 raise ValueError(
                     f"Score reference {score} for '{self.name}' is outside "
-                    f"the configured scale [{self.scale_min}, {self.scale_max}]"
+                    f"the configured scale [{SCALE_MIN}, {SCALE_MAX}]"
                 )
             normalized[score] = str(text).strip()
         self.score_references = normalized
 
-    def prompt_block(self) -> str:
-        """Render this criterion as a scoring instruction for the judge."""
-        base = (
-            f"**{self.name.title()}** ({self.scale_min}–{self.scale_max}): "
-            f"{self.description}"
-        )
-        if not self.score_references:
-            return base
 
-        refs = "\n".join(
-            f"   - {score}: {self.score_references[score]}"
-            for score in sorted(self.score_references.keys(), reverse=True)
-        )
-        return f"{base}\n   Score references:\n{refs}"
+def criterion_prompt_block(criterion: Criterion) -> str:
+    """Render a criterion as a scoring instruction for the judge."""
+    base = (
+        f"**{criterion.name.title()}** ({SCALE_MIN}–{SCALE_MAX}): "
+        f"{criterion.description}"
+    )
+    if not criterion.score_references:
+        return base
 
-@dataclass
-class Criteria:
-    """A collection of scoring criteria forming a complete criteria set.
+    refs = "\n".join(
+        f"   - {score}: {criterion.score_references[score]}"
+        for score in sorted(criterion.score_references.keys(), reverse=True)
+    )
+    return f"{base}\n   Score references:\n{refs}"
 
-    Attributes:
-        name: Criteria identifier (e.g. "default", "my_custom").
-        criteria: List of scoring criteria.
-        description: Optional description of when to use this criteria set.
-    """
 
-    name: str
-    criteria: list[Criterion]
-    description: str = ""
+def prompt_block(criteria: list[Criterion]) -> str:
+    """Render criteria as scoring instructions."""
+    lines = ["Score the following completion on each criterion:\n"]
+    for i, criterion in enumerate(criteria, 1):
+        lines.append(f"{i}. {criterion_prompt_block(criterion)}")
+    return "\n".join(lines)
 
-    @property
-    def criterion_names(self) -> list[str]:
-        """Names of all criteria in order."""
-        return [c.name for c in self.criteria]
 
-    @property
-    def num_criteria(self) -> int:
-        """Number of criteria."""
-        return len(self.criteria)
-
-    def prompt_block(self) -> str:
-        """Render the full criteria as scoring instructions."""
-        lines = ["Score the following completion on each criterion:\n"]
-        for i, dim in enumerate(self.criteria, 1):
-            lines.append(f"{i}. {dim.prompt_block()}")
-        return "\n".join(lines)
+def criterion_names(criteria: list[Criterion]) -> list[str]:
+    """Return criterion names in order."""
+    return [criterion.name for criterion in criteria]
 
 
 @dataclass
 class CriteriaScore:
-    """Scores for a single (instruction, completion) pair across all criteria.
-
-    Attributes:
-        instruction_index: Index linking back to the instruction.
-        model: Model that generated the completion.
-        scores: Dict mapping criterion name → score.
-        raw_judge_output: Raw text from the judge (for debugging).
-    """
+    """Scores for a single (instruction, completion) pair across all criteria."""
 
     instruction_index: int | str
     model: str
@@ -116,3 +73,16 @@ class CriteriaScore:
         """Return scores as an ordered vector matching criterion_names."""
         return [self.scores.get(name, 0.0) for name in criterion_names]
 
+
+def criterion_from_dict(data: dict[str, Any]) -> Criterion:
+    """Build a Criterion from a serialized mapping."""
+    return Criterion(
+        name=data["name"],
+        description=data["description"],
+        score_references=data.get("score_references", {}),
+    )
+
+
+def criteria_from_dict(data: dict[str, Any]) -> list[Criterion]:
+    """Build criteria from a serialized mapping."""
+    return [criterion_from_dict(item) for item in data["criteria"]]

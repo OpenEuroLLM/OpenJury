@@ -2,8 +2,8 @@
 
 Modules:
     - ``openjury.criteria.schema``: dataclasses for criteria definitions and scores
-    - ``openjury.criteria.defaults``: built-in criteria registry (currently ``default``)
-    - ``openjury.criteria.io``: custom criteria loading/registration from JSON
+    - ``openjury.criteria.defaults``: built-in criteria lookup (currently ``default``)
+    - ``openjury.criteria.io``: custom criteria loading from JSON/YAML
     - ``openjury.criteria.scorer``: criteria scoring with an LLM judge
     - ``openjury.criteria.pipeline``: shared criteria pipeline output helpers
 

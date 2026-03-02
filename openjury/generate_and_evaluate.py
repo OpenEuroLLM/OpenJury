@@ -214,7 +214,7 @@ class CliArgs:
             "--criteria_file",
             type=str,
             default=None,
-            help="Optional path to a custom criteria file. JSON is supported. If provided, this overrides --criteria_name.",
+            help="Optional path to a custom criteria file (.json/.yaml/.yml). If provided, this overrides --criteria_name.",
         )
         args = parser.parse_args()
 

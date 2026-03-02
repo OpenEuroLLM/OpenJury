@@ -11,6 +11,7 @@ import pandas as pd
 
 from openjury.criteria.io import resolve_criteria
 from openjury.criteria.scorer import CriteriaScorer
+from openjury.criteria.schema import criterion_names
 
 
 def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
@@ -52,13 +53,16 @@ def run_samplewise_criteria_pipeline(
     """Run samplewise criteria scoring and save outputs.
 
     This helper currently runs sample-wise scoring for model A and model B
-    independently, then derives preferences from weighted criterion averages.
+    independently, then derives preferences from criterion averages.
     The function name is kept stable for call-site compatibility.
     """
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    criteria = resolve_criteria(criteria_name=criteria_name, criteria_file=criteria_file)
+    resolved_criteria_name, criteria = resolve_criteria(
+        criteria_name=criteria_name,
+        criteria_file=criteria_file,
+    )
     scorer = CriteriaScorer(
         judge_model=judge_model,
         criteria=criteria,
@@ -85,7 +89,12 @@ def run_samplewise_criteria_pipeline(
     df_A.loc[:, "instruction_index"] = instruction_index
     df_B.loc[:, "instruction_index"] = instruction_index
 
-    prefix_base = f"{output_prefix}-criteria-{criteria.name}" if output_prefix else f"criteria-{criteria.name}"
+    names = criterion_names(criteria)
+    prefix_base = (
+        f"{output_prefix}-criteria-{resolved_criteria_name}"
+        if output_prefix
+        else f"criteria-{resolved_criteria_name}"
+    )
     df_A.to_csv(output_folder / f"{prefix_base}-scores-A.csv", index=False)
     df_B.to_csv(output_folder / f"{prefix_base}-scores-B.csv", index=False)
     pd.DataFrame(
@@ -100,7 +109,7 @@ def run_samplewise_criteria_pipeline(
             "raw_judge_output_A": row_A.raw_judge_output,
             "raw_judge_output_B": row_B.raw_judge_output,
         }
-        for criterion_name in criteria.criterion_names:
+        for criterion_name in names:
             row[f"A_{criterion_name}"] = row_A.scores.get(criterion_name, float("nan"))
             row[f"B_{criterion_name}"] = row_B.scores.get(criterion_name, float("nan"))
         comparison_rows.append(row)
@@ -112,8 +121,8 @@ def run_samplewise_criteria_pipeline(
 
     summary = {
         **(summary_fields or {}),
-        "criteria_name": criteria.name,
-        "criterion_names": criteria.criterion_names,
+        "criteria_name": resolved_criteria_name,
+        "criterion_names": names,
         "scoring_mode": "samplewise",
         **_compute_pref_summary(prefs),
         "preferences": prefs.tolist(),
@@ -124,6 +133,7 @@ def run_samplewise_criteria_pipeline(
         json.dump(summary, f, indent=2)
 
     return {
+        "criteria_name": resolved_criteria_name,
         "criteria": criteria,
         "summary": summary,
         "prefix": prefix_base,

@@ -1,76 +1,79 @@
-"""Criteria-set I/O helpers (JSON-only for now)."""
+"""Criteria-set I/O helpers."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from openjury.criteria.defaults import get_criteria, register_criteria
-from openjury.criteria.schema import Criterion, Criteria
+import yaml
+
+from openjury.criteria.defaults import CRITERIA_BY_NAME
+from openjury.criteria.schema import Criterion, criteria_from_dict
 
 
-def load_criteria_from_json(path: str | Path) -> Criteria:
-    """Load a criteria-set definition from a JSON file.
-
-    Expects the preferred ``"criteria"`` key.
-    """
+def _load_criteria_data_from_json(path: str | Path) -> dict:
     data = json.loads(Path(path).read_text())
-    criteria_data = data["criteria"]
-    criteria = [
-        Criterion(
-            name=d["name"],
-            description=d["description"],
-            scale_min=d.get("scale_min", 1),
-            scale_max=d.get("scale_max", 10),
-            weight=d.get("weight", 1.0),
-            score_references=d.get("score_references", {}),
-        )
-        for d in criteria_data
-    ]
-    return Criteria(
-        name=data["name"],
-        criteria=criteria,
-        description=data.get("description", ""),
-    )
+    if not isinstance(data, dict):
+        raise ValueError("Criteria JSON must define a mapping at the top level.")
+    return data
 
 
-def register_criteria_from_json(path: str | Path) -> Criteria:
-    """Load a criteria-set JSON file and register it in the runtime registry."""
-    criteria = load_criteria_from_json(path)
-    register_criteria(criteria)
-    return criteria
+def _load_criteria_data_from_yaml(path: str | Path) -> dict:
+    data = yaml.safe_load(Path(path).read_text())
+    if not isinstance(data, dict):
+        raise ValueError("Criteria YAML must define a mapping at the top level.")
+    return data
 
 
-def load_criteria_from_file(path: str | Path) -> Criteria:
-    """Load a criteria set from a file path.
+def load_criteria_from_json(path: str | Path) -> list[Criterion]:
+    """Load criteria from a JSON file."""
+    return criteria_from_dict(_load_criteria_data_from_json(path))
 
-    Currently only JSON files are supported. This function exists to keep the
-    call site API format-agnostic for future YAML support.
+
+def load_criteria_from_yaml(path: str | Path) -> list[Criterion]:
+    """Load criteria from a YAML file."""
+    return criteria_from_dict(_load_criteria_data_from_yaml(path))
+
+
+def load_criteria_from_file(path: str | Path) -> list[Criterion]:
+    """Load criteria from a file path.
+
+    Supported formats:
+    - ``.json``
+    - ``.yaml``
+    - ``.yml``
     """
     path = Path(path)
-    if path.suffix.lower() != ".json":
-        raise ValueError(
-            f"Unsupported criteria file format '{path.suffix}'. "
-            "Only .json is supported."
-        )
-    return load_criteria_from_json(path)
-
-
-def register_criteria_from_file(path: str | Path) -> Criteria:
-    """Load a criteria-set file and register it (JSON-only for now)."""
-    criteria = load_criteria_from_file(path)
-    register_criteria(criteria)
-    return criteria
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return load_criteria_from_json(path)
+    if suffix in {".yaml", ".yml"}:
+        return load_criteria_from_yaml(path)
+    raise ValueError(
+        f"Unsupported criteria file format '{path.suffix}'. "
+        "Use .json, .yaml, or .yml."
+    )
 
 
 def resolve_criteria(
     criteria_name: str = "default",
     criteria_file: str | Path | None = None,
-) -> Criteria:
-    """Resolve a criteria set by name or file path (file path takes precedence).
-
-    Currently ``criteria_file`` supports JSON only.
-    """
+) -> tuple[str, list[Criterion]]:
+    """Resolve criteria by name or file path (file path takes precedence)."""
     if criteria_file is not None:
-        return register_criteria_from_file(criteria_file)
-    return get_criteria(criteria_name)
+        path = Path(criteria_file)
+        if path.suffix.lower() == ".json":
+            data = _load_criteria_data_from_json(path)
+        elif path.suffix.lower() in {".yaml", ".yml"}:
+            data = _load_criteria_data_from_yaml(path)
+        else:
+            raise ValueError(
+                f"Unsupported criteria file format '{path.suffix}'. "
+                "Use .json, .yaml, or .yml."
+            )
+        resolved_name = data.get("name", path.stem)
+        return resolved_name, criteria_from_dict(data)
+    if criteria_name not in CRITERIA_BY_NAME:
+        available = ", ".join(sorted(CRITERIA_BY_NAME.keys()))
+        raise KeyError(f"Unknown criteria '{criteria_name}'. Available: {available}")
+    return criteria_name, CRITERIA_BY_NAME[criteria_name]

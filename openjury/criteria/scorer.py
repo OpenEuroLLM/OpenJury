@@ -2,7 +2,7 @@
 
 This scorer is intentionally sample-wise only:
 - Each completion is scored independently against the same criteria.
-- Preferences between model A and model B are derived later from weighted
+- Preferences between model A and model B are derived later from
   criterion averages (no direct head-to-head judge call).
 """
 
@@ -17,7 +17,14 @@ import numpy as np
 import pandas as pd
 
 from openjury.prompts import load_prompt
-from openjury.criteria.schema import Criteria, CriteriaScore
+from openjury.criteria.schema import (
+    SCALE_MAX,
+    SCALE_MIN,
+    Criterion,
+    CriteriaScore,
+    criterion_names,
+    prompt_block,
+)
 from openjury.utils import do_inference
 
 logger = logging.getLogger(__name__)
@@ -27,18 +34,18 @@ _EXAMPLE_SCORE_SEED = (7, 8, 6, 9, 7, 8, 5, 10, 6, 9)
 
 
 def _build_example_scores(
-    criteria: Criteria,
+    criteria: list[Criterion],
     decrement: int = 0,
 ) -> dict[str, int]:
     """Build deterministic example scores using criteria names."""
     scores: dict[str, int] = {}
-    for i, criterion in enumerate(criteria.criteria):
+    for i, criterion in enumerate(criteria):
         base = _EXAMPLE_SCORE_SEED[i % len(_EXAMPLE_SCORE_SEED)] - decrement
-        scores[criterion.name] = min(criterion.scale_max, max(criterion.scale_min, base))
+        scores[criterion.name] = min(SCALE_MAX, max(SCALE_MIN, base))
     return scores
 
 
-def _build_example_json_strings(criteria: Criteria) -> str:
+def _build_example_json_strings(criteria: list[Criterion]) -> str:
     """Return the sample-wise example JSON string used in prompts."""
     example = _build_example_scores(criteria)
     return json.dumps(example)
@@ -59,7 +66,7 @@ class CriteriaScorer:
     def __init__(
         self,
         judge_model: Any,
-        criteria: Criteria,
+        criteria: list[Criterion],
         provide_explanation: bool = False,
     ):
         self.judge_model = judge_model
@@ -76,7 +83,7 @@ class CriteriaScorer:
         samplewise_system_template = load_prompt("criteria_samplewise_system")
         self._samplewise_user_template = load_prompt("criteria_samplewise_user")
         self._samplewise_system = samplewise_system_template.format(
-            criteria_block=self.criteria.prompt_block(),
+            criteria_block=prompt_block(self.criteria),
             explanation_block=explanation_block,
             example_json=example_json,
         )
@@ -90,7 +97,7 @@ class CriteriaScorer:
 
     def _normalize_score_keys(self, scores: dict[str, float]) -> dict[str, float]:
         """Map parsed keys back to canonical criterion names (case-insensitive)."""
-        lookup = {name.lower(): name for name in self.criteria.criterion_names}
+        lookup = {name.lower(): name for name in criterion_names(self.criteria)}
         return {lookup.get(k.lower(), k): v for k, v in scores.items()}
 
     def _build_prompts(
@@ -132,7 +139,7 @@ class CriteriaScorer:
                 pass
 
         scores = {}
-        for criterion_name in self.criteria.criterion_names:
+        for criterion_name in criterion_names(self.criteria):
             pattern = rf'["\']?{re.escape(criterion_name)}["\']?\s*[:=]\s*(\d+(?:\.\d+)?)'
             match = re.search(pattern, raw_output, re.IGNORECASE)
             if match:
@@ -145,7 +152,7 @@ class CriteriaScorer:
             "Could not parse criteria scores from judge output: %s",
             raw_output[:200],
         )
-        return {criterion_name: float("nan") for criterion_name in self.criteria.criterion_names}
+        return {criterion_name: float("nan") for criterion_name in criterion_names(self.criteria)}
 
     def score(
         self,
@@ -170,7 +177,7 @@ class CriteriaScorer:
             "Scoring %d completions from %s on %d criteria (sample-wise)",
             len(prompts),
             model_name,
-            self.criteria.num_criteria,
+            len(self.criteria),
         )
 
         raw_outputs = do_inference(
@@ -229,13 +236,12 @@ class CriteriaScorer:
         """Convert sample-wise scores to DataFrames and derived preferences."""
         df_A = self.score_to_dataframe(scores_A)
         df_B = self.score_to_dataframe(scores_B)
-
-        weights = {criterion.name: criterion.weight for criterion in self.criteria.criteria}
+        names = criterion_names(self.criteria)
 
         prefs: list[float] = []
         for sa, sb in zip(scores_A, scores_B):
-            avg_a = self._weighted_criteria_avg(sa.scores, weights)
-            avg_b = self._weighted_criteria_avg(sb.scores, weights)
+            avg_a = self._criteria_avg(sa.scores, names)
+            avg_b = self._criteria_avg(sb.scores, names)
 
             if np.isnan(avg_a) or np.isnan(avg_b):
                 prefs.append(0.5)
@@ -252,7 +258,7 @@ class CriteriaScorer:
         n_b = (prefs_series > 0.5).sum()
         n_t = (prefs_series == 0.5).sum()
         logger.info(
-            "Samplewise preferences (from criteria weighted avg): "
+            "Samplewise preferences (from criteria average): "
             "A wins=%d, B wins=%d, ties=%d (of %d)",
             n_a,
             n_b,
@@ -263,16 +269,16 @@ class CriteriaScorer:
         return df_A, df_B, prefs_series
 
     @staticmethod
-    def _weighted_criteria_avg(
+    def _criteria_avg(
         scores: dict[str, float],
-        weights: dict[str, float],
+        names: list[str],
     ) -> float:
-        """Weighted average of criteria scores, skipping NaN criteria."""
-        total_w = 0.0
+        """Average of criteria scores, skipping NaN criteria."""
+        total_n = 0
         total_s = 0.0
-        for criterion_name, weight in weights.items():
+        for criterion_name in names:
             score = scores.get(criterion_name, float("nan"))
             if score == score:
-                total_w += weight
-                total_s += weight * score
-        return total_s / total_w if total_w > 0 else float("nan")
+                total_n += 1
+                total_s += score
+        return total_s / total_n if total_n > 0 else float("nan")

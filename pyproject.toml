@@ -24,6 +24,7 @@ dependencies = [
     "langchain-together>=0.3.1",
     "matplotlib>=3.10.6",
     "pandas>=2.3.2",
+    "pyyaml>=6.0.2",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
 ]
@@ -31,6 +32,9 @@ dependencies = [
 [tool.setuptools.packages.find]
 include = ["openjury*"]
 exclude = ["slurmpilot_scripts*"]
+
+[tool.setuptools.package-data]
+"openjury.criteria" = ["data/*.yaml"]
 
 [dependency-groups]
 dev = [
