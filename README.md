@@ -22,7 +22,7 @@ Compared to other libraries, here is a breakdown of features:
 | **Arena-Hard-Auto** | ❌  | ❌  | ✅  | ❌  | ❌                         | ❌                                            |
 | **Lighteval** | ✅  | ❌  | ❌  | ❌  | ❌                         | ❌                                       |
 | **Evalchemy** | ✅  | ✅  | ❌  | ❌  | ❌                         | ❌                                           |
-| **OpenJury** | 🔜  | ✅  | ✅  | ✅  | ✅                         | ✅                                          |
+| **OpenJury** | ✅  | ✅  | ✅  | ✅  | ✅                         | ✅                                          |
 
 The table has been done on Oct 2025, in case some libraries implemented missing features, please open an issue 
 or send a PR, we will be happy to update the information.
@@ -172,10 +172,29 @@ python openjury/generate_and_evaluate.py \
 
 This override applies to all vLLM models in the run. For remote providers (OpenAI, Together, OpenRouter), the flag is ignored since they handle templates server-side.
 
+### MT-Bench (Multi-Turn Evaluation)
+
+MT-Bench evaluates multi-turn conversation ability using 80 two-turn questions across 8 categories
+(writing, roleplay, reasoning, math, coding, extraction, STEM, humanities).
+It uses category-dependent judge prompts and reference answers for math/reasoning/coding.
+Questions are automatically downloaded from the [LMSYS MT-Bench HuggingFace space](https://huggingface.co/spaces/lmsys/mt-bench).
+
+```bash
+uv run python openjury/generate_and_evaluate.py \
+  --dataset mt-bench \
+  --model_A VLLM/Qwen/Qwen2.5-7B-Instruct \
+  --model_B OpenRouter/openai/gpt-4o \
+  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
+  --n_instructions 10
+```
+
+Results include per-category and per-turn win rate breakdowns. Use `--swap_mode both` to correct for judge position bias.
+
 ## 📊 Supported Datasets
 
 | Dataset               | Description                                                                                    |
 |-----------------------|------------------------------------------------------------------------------------------------|
+| `mt-bench`            | 80 multi-turn (2-turn) questions across 8 categories ([LMSYS MT-Bench](https://arxiv.org/abs/2306.05685)) |
 | `alpaca-eval`         | General instruction-following benchmark                                                        |
 | `arena-hard`          | More challenging evaluation suite                                                              |
 | `m-arena-hard`        | Translated version of Arena-Hard in 23 languages                                               |

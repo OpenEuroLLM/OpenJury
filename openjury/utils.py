@@ -42,6 +42,14 @@ def read_df(filename: Path, **pandas_kwargs) -> pd.DataFrame:
         return pd.read_parquet(filename, **pandas_kwargs)
 
 
+def truncate(s: str, max_len: int | None = None) -> str:
+    if not isinstance(s, str):
+        return ""
+    if max_len is not None:
+        return s[:max_len]
+    return s
+
+
 def do_inference(chat_model, inputs, use_tqdm: bool = False):
     # Retries on rate-limit/server errors with exponential backoff.
     # Async path retries individual calls; batch path splits into 4^attempt chunks on failure.
@@ -174,7 +182,11 @@ class BaseLocalModel:
             return input_item
         if hasattr(input_item, "to_string"):
             return input_item.to_string()
-        if isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+        if (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], dict)
+        ):
             return "\n".join(msg["content"] for msg in input_item)
         raise ValueError(f"Cannot extract raw text from: {type(input_item)}")
 
@@ -204,7 +216,9 @@ class ChatLlamaCppModel(BaseLocalModel):
     ``Llama.reset()`` between conversations to clear stale KV-cache state.
     """
 
-    def __init__(self, model_path: str, max_tokens: int = 1024, n_ctx: int = 0, **kwargs):
+    def __init__(
+        self, model_path: str, max_tokens: int = 1024, n_ctx: int = 0, **kwargs
+    ):
         from llama_cpp import Llama
 
         self.model_path = model_path
@@ -265,7 +279,13 @@ class ChatVLLM(BaseLocalModel):
           default chat template.
     """
 
-    def __init__(self, model: str, max_tokens: int = 8192, chat_template: str | None = None, **vllm_kwargs):
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int = 8192,
+        chat_template: str | None = None,
+        **vllm_kwargs,
+    ):
         from vllm import LLM, SamplingParams
 
         self.model_path = model
@@ -277,6 +297,7 @@ class ChatVLLM(BaseLocalModel):
         if max_model_len is not None:
             try:
                 from transformers import AutoConfig
+
                 config = AutoConfig.from_pretrained(model, trust_remote_code=True)
                 model_max_pos = getattr(config, "max_position_embeddings", None)
                 if model_max_pos is not None and max_model_len > model_max_pos:

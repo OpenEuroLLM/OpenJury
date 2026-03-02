@@ -15,6 +15,7 @@ from openjury.utils import (
     data_root,
     download_hf,
     do_inference,
+    truncate,
 )
 
 
@@ -51,14 +52,22 @@ class PairScore:
 
 def load_judge_system_and_user_prompt(
     provide_explanation: bool = True,
+    multi_turn: bool = False,
 ) -> tuple[str, str]:
     # Prepare judge
     with open(Path(__file__).parent / "prompts" / "system-prompt.txt", "r") as f:
         system_prompt = str(f.read())
 
-    prompt_filename = (
-        "prompt-with-explanation.txt" if provide_explanation else "prompt.txt"
-    )
+    if multi_turn:
+        prompt_filename = (
+            "prompt-multi-turn-with-explanation.txt"
+            if provide_explanation
+            else "prompt-multi-turn.txt"
+        )
+    else:
+        prompt_filename = (
+            "prompt-with-explanation.txt" if provide_explanation else "prompt.txt"
+        )
     with open(Path(__file__).parent / "prompts" / prompt_filename, "r") as f:
         user_prompt_template = str(f.read())
 
@@ -239,14 +248,6 @@ def annotate_battles(
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]
     )
-
-    def truncate(s: str, max_len: int | None = None):
-        if not isinstance(s, str):
-            return ""
-        if max_len is not None:
-            return s[:max_len]
-        else:
-            return s
 
     inputs = prompt_template.batch(
         [

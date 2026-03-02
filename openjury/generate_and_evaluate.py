@@ -11,14 +11,19 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate_battles, PairScore
-from openjury.generate import generate_instructions, generate_base
+from openjury.evaluate import (
+    annotate_battles,
+    PairScore,
+    load_judge_system_and_user_prompt,
+)
+from openjury.generate import generate_instructions, generate_base, generate_multiturn
 from openjury.instruction_dataset import load_instructions
-from openjury.utils import data_root, read_df, download_hf
+from openjury.utils import data_root, read_df, download_hf, truncate
 from openjury.utils import make_model, cache_function_dataframe
+
+NEED_REF_CATS = {"math", "reasoning", "coding"}
 
 
 def try_load_dataset_completions(
@@ -75,6 +80,7 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
+    mt_bench_turns: str = "both"
 
     result_folder: str = "results"
 
@@ -195,6 +201,15 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
+        parser.add_argument(
+            "--mt_bench_turns",
+            type=str,
+            choices=["both", "single", "multi"],
+            default="both",
+            help="Which MT-Bench turns to evaluate. 'single': only turn 1, "
+            "'multi': only turn 2 (with full conversation context), "
+            "'both' (default): evaluate both turns.",
+        )
         args = parser.parse_args()
 
         return cls(
@@ -212,6 +227,7 @@ class CliArgs:
             max_out_tokens_judge=args.max_out_tokens_judge,
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
+            mt_bench_turns=args.mt_bench_turns,
             result_folder=args.result_folder,
         )
 
@@ -237,7 +253,216 @@ def print_results(results):
     print(f"   ✅ Wins:   {results['num_wins']}")
     print(f"   ❌ Losses: {results['num_losses']}")
     print(f"   🤝 Ties:   {results['num_ties']}")
+    if "num_errors" in results:
+        print(f"   ⚠️ Errors: {results['num_errors']}")
+    if "num_missing" in results:
+        print(f"   ❓ Missing: {results['num_missing']}")
+
+    per_category = results.get("per_category")
+    if per_category:
+        print("\nPer-Category Breakdown:")
+        print(
+            f"  {'Category':<14} | {'Win Rate(A)':>11} | {'Wins':>4} | {'Losses':>6} | {'Ties':>4}"
+        )
+        print(f"  {'-' * 14}-+-{'-' * 11}-+-{'-' * 4}-+-{'-' * 6}-+-{'-' * 4}")
+        for cat, stats in sorted(per_category.items()):
+            print(
+                f"  {cat:<14} | {stats['winrate']:>10.1%} | "
+                f"{stats['num_wins']:>4} | {stats['num_losses']:>6} | {stats['num_ties']:>4}"
+            )
+
+    per_turn = results.get("per_turn")
+    if per_turn:
+        print("\nPer-Turn Breakdown:")
+        for turn, stats in sorted(per_turn.items()):
+            print(
+                f"  Turn {turn} Win Rate(A): {stats['winrate']:.1%} "
+                f"(W:{stats['num_wins']} L:{stats['num_losses']} T:{stats['num_ties']})"
+            )
     print("=" * 60 + "\n")
+
+
+def _safe_text(value: object, truncate_chars: int | None) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return truncate(str(value), max_len=truncate_chars)
+
+
+def format_mt_bench_for_evaluation(
+    questions: pd.DataFrame,
+    completions_A: pd.DataFrame,
+    completions_B: pd.DataFrame,
+    turns_mode: str,
+    truncate_input_chars: int | None,
+) -> tuple[
+    tuple[list[str], list[str], list[str], list[dict[str, object]]],
+    tuple[list[str], list[str], list[str], list[dict[str, object]]],
+]:
+    """Flatten MT-Bench into per-turn instruction/completion battle inputs."""
+    assert turns_mode in ("both", "single", "multi")
+    eval_single = turns_mode in ("both", "single")
+    eval_multi = turns_mode in ("both", "multi")
+
+    instructions_turn_1: list[str] = []
+    completions_a_turn_1: list[str] = []
+    completions_b_turn_1: list[str] = []
+    metadata_turn_1: list[dict[str, object]] = []
+
+    instructions_turn_2: list[str] = []
+    completions_a_turn_2: list[str] = []
+    completions_b_turn_2: list[str] = []
+    metadata_turn_2: list[dict[str, object]] = []
+
+    for idx in questions.index:
+        row = questions.loc[idx]
+        comp_A_row = (
+            completions_A.loc[idx] if idx in completions_A.index else completions_A.iloc[0]
+        )
+        comp_B_row = (
+            completions_B.loc[idx] if idx in completions_B.index else completions_B.iloc[0]
+        )
+        category = row.get("category")
+        needs_ref = category in NEED_REF_CATS
+
+        turn_1_question = _safe_text(row.get("turn_1"), truncate_input_chars)
+        turn_2_question = _safe_text(row.get("turn_2"), truncate_input_chars)
+
+        answer_a_1 = _safe_text(comp_A_row.get("completion_turn_1", ""), truncate_input_chars)
+        answer_a_2 = _safe_text(comp_A_row.get("completion_turn_2", ""), truncate_input_chars)
+        answer_b_1 = _safe_text(comp_B_row.get("completion_turn_1", ""), truncate_input_chars)
+        answer_b_2 = _safe_text(comp_B_row.get("completion_turn_2", ""), truncate_input_chars)
+
+        ref_1 = _safe_text(row.get("reference_turn_1"), truncate_input_chars)
+        ref_2 = _safe_text(row.get("reference_turn_2"), truncate_input_chars)
+
+        if eval_single:
+            if needs_ref and ref_1:
+                instruction = (
+                    "[MT-Bench | Turn 1]\n"
+                    "Use the reference answer for correctness checks.\n\n"
+                    f"[Question]\n{turn_1_question}\n\n"
+                    f"[Reference Answer]\n{ref_1}"
+                )
+            else:
+                instruction = turn_1_question
+
+            instructions_turn_1.append(instruction)
+            completions_a_turn_1.append(answer_a_1)
+            completions_b_turn_1.append(answer_b_1)
+            metadata_turn_1.append(
+                {
+                    "question_id": idx,
+                    "category": category,
+                    "turn": 1,
+                }
+            )
+
+        if eval_multi and turn_2_question:
+            instruction_parts = [
+                "Please focus on which assistant provides a better answer to the second user question."
+            ]
+            if needs_ref and (ref_1 or ref_2):
+                instruction_parts.extend(
+                    [
+                        "<|The Start of Reference Answer|>",
+                        "### User:",
+                        turn_1_question,
+                        "### Reference answer:",
+                        ref_1,
+                        "### User:",
+                        turn_2_question,
+                        "### Reference answer:",
+                        ref_2,
+                        "<|The End of Reference Answer|>",
+                    ]
+                )
+
+            conversation_a = (
+                "### User:\n"
+                f"{turn_1_question}\n\n"
+                "### Assistant:\n"
+                f"{answer_a_1}\n\n"
+                "### User:\n"
+                f"{turn_2_question}\n\n"
+                "### Assistant:\n"
+                f"{answer_a_2}"
+            )
+            conversation_b = (
+                "### User:\n"
+                f"{turn_1_question}\n\n"
+                "### Assistant:\n"
+                f"{answer_b_1}\n\n"
+                "### User:\n"
+                f"{turn_2_question}\n\n"
+                "### Assistant:\n"
+                f"{answer_b_2}"
+            )
+
+            instructions_turn_2.append("\n\n".join(instruction_parts))
+            completions_a_turn_2.append(conversation_a)
+            completions_b_turn_2.append(conversation_b)
+            metadata_turn_2.append(
+                {
+                    "question_id": idx,
+                    "category": category,
+                    "turn": 2,
+                }
+            )
+
+    return (
+        (
+            instructions_turn_1,
+            completions_a_turn_1,
+            completions_b_turn_1,
+            metadata_turn_1,
+        ),
+        (
+            instructions_turn_2,
+            completions_a_turn_2,
+            completions_b_turn_2,
+            metadata_turn_2,
+        ),
+    )
+
+
+def compute_preference_stats(prefs: pd.Series) -> dict:
+    """Derive win/loss/tie counts and winrate from a Series of preferences.
+
+    Preference < 0.5 means model A wins, > 0.5 means model B wins,
+    exactly 0.5 is a tie.  None/NaN values are counted as missing.
+    """
+    num_battles = len(prefs)
+    num_wins = int(sum(prefs < 0.5))
+    num_losses = int(sum(prefs > 0.5))
+    num_ties = int(sum(prefs == 0.5))
+    num_missing = num_battles - (num_wins + num_losses + num_ties)
+    denom = num_wins + num_losses + num_ties
+    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom else 0.0
+    return {
+        "num_battles": num_battles,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+        "num_missing": num_missing,
+        "winrate": winrate,
+    }
+
+
+def _compute_grouped_stats(
+    preferences: pd.Series,
+    metadata: list[dict[str, object]],
+    group_by: str,
+) -> dict[object, dict[str, float | int]]:
+    grouped: dict[object, list[float]] = {}
+    for meta, pref in zip(metadata, preferences):
+        key = meta.get(group_by)
+        if key is None:
+            continue
+        grouped.setdefault(key, []).append(pref)
+    return {
+        key: compute_preference_stats(pd.Series(vals))
+        for key, vals in grouped.items()
+    }
 
 
 def main(args: CliArgs):
@@ -260,6 +485,10 @@ def main(args: CliArgs):
     # if not args.ignore_cache:
     #     set_langchain_cache()
     ignore_cache = args.ignore_cache
+
+    # MT-Bench has its own pipeline: multi-turn generation + category-aware judging
+    if args.dataset == "mt-bench":
+        return _run_mt_bench(args, ignore_cache)
 
     # Currrently, we run context evaluation
     is_fluency_task = "fluency" in args.dataset
@@ -420,30 +649,250 @@ def main(args: CliArgs):
         )
         prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
-    # compute and report statistics
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
-
+    stats = compute_preference_stats(prefs)
     results = {
         "dataset": args.dataset,
         "model_A": args.model_A,
         "model_B": args.model_B,
         "judge_model": args.judge_model,
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": num_battles - (num_losses + num_wins + num_ties),
+        **stats,
         "preferences": prefs.tolist(),
         "date": str(datetime.now().isoformat()),
         "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
+
+    with open(res_folder / f"results-{name}.json", "w") as f:
+        json.dump(results, f, indent=2)
+
+    return prefs
+
+
+def _run_mt_bench(args: CliArgs, ignore_cache: bool):
+    """MT-Bench pipeline routed through score-based judging."""
+    questions_df = load_instructions("mt-bench", n_instructions=args.n_instructions)
+
+    print(
+        f"Generating multi-turn completions for MT-Bench with {args.model_A} and {args.model_B}."
+    )
+
+    gen_kwargs = dict(
+        truncate_input_chars=args.truncate_all_input_chars,
+        max_tokens=args.max_out_tokens_models,
+        max_model_len=args.max_model_len,
+        chat_template=args.chat_template,
+    )
+
+    completions_A = cache_function_dataframe(
+        lambda: generate_multiturn(
+            questions=questions_df,
+            model=args.model_A,
+            use_tqdm=args.use_tqdm,
+            **gen_kwargs,
+        ),
+        ignore_cache=ignore_cache,
+        cache_name=f"mt-bench_{args.model_A}_{args.n_instructions}",
+    ).set_index("instruction_index")
+
+    completions_B = cache_function_dataframe(
+        lambda: generate_multiturn(
+            questions=questions_df,
+            model=args.model_B,
+            use_tqdm=args.use_tqdm,
+            **gen_kwargs,
+        ),
+        ignore_cache=ignore_cache,
+        cache_name=f"mt-bench_{args.model_B}_{args.n_instructions}",
+    ).set_index("instruction_index")
+
+    judge_chat_model = make_model(
+        model=args.judge_model,
+        max_tokens=args.max_out_tokens_judge,
+        max_model_len=args.max_model_len,
+        chat_template=args.chat_template,
+    )
+
+    turn_1_inputs, turn_2_inputs = format_mt_bench_for_evaluation(
+        questions=questions_df,
+        completions_A=completions_A,
+        completions_B=completions_B,
+        turns_mode=args.mt_bench_turns,
+        truncate_input_chars=args.truncate_all_input_chars,
+    )
+    (
+        instructions_turn_1,
+        completions_a_turn_1,
+        completions_b_turn_1,
+        metadata_turn_1,
+    ) = turn_1_inputs
+    (
+        instructions_turn_2,
+        completions_a_turn_2,
+        completions_b_turn_2,
+        metadata_turn_2,
+    ) = turn_2_inputs
+
+    score_parser = PairScore()
+    annotations = []
+    metadata_for_annotations: list[dict[str, object]] = []
+    annotations_reversed = []
+    metadata_for_reversed_annotations: list[dict[str, object]] = []
+    preference_parts: list[pd.Series] = []
+    combined_metadata: list[dict[str, object]] = []
+
+    if args.swap_mode == "both":
+        print("Running reversed evaluation for position bias correction.")
+
+    if instructions_turn_1:
+        annotations_turn_1 = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions_turn_1,
+            completions_A=completions_a_turn_1,
+            completions_B=completions_b_turn_1,
+            provide_explanation=args.provide_explanation,
+            truncate_input_chars=args.truncate_all_input_chars,
+            use_tqdm=args.use_tqdm,
+        )
+        annotations.extend(annotations_turn_1)
+        metadata_for_annotations.extend(metadata_turn_1)
+        prefs_turn_1 = pd.Series(
+            [
+                score_parser.parse_model_raw(annotation.judge_completion)
+                for annotation in annotations_turn_1
+            ]
+        )
+        preference_parts.append(prefs_turn_1)
+        combined_metadata.extend(metadata_turn_1)
+
+        if args.swap_mode == "both":
+            annotations_turn_1_reversed = annotate_battles(
+                judge_chat_model=judge_chat_model,
+                instructions=instructions_turn_1,
+                completions_A=completions_b_turn_1,
+                completions_B=completions_a_turn_1,
+                provide_explanation=args.provide_explanation,
+                truncate_input_chars=args.truncate_all_input_chars,
+                use_tqdm=args.use_tqdm,
+            )
+            annotations_reversed.extend(annotations_turn_1_reversed)
+            metadata_for_reversed_annotations.extend(metadata_turn_1)
+            prefs_turn_1_reversed = pd.Series(
+                [
+                    score_parser.parse_model_raw(annotation.judge_completion)
+                    for annotation in annotations_turn_1_reversed
+                ]
+            )
+            preference_parts.append(1 - prefs_turn_1_reversed)
+            combined_metadata.extend(metadata_turn_1)
+
+    if instructions_turn_2:
+        (
+            mt_system_prompt,
+            mt_user_prompt_template,
+        ) = load_judge_system_and_user_prompt(
+            provide_explanation=args.provide_explanation,
+            multi_turn=True,
+        )
+        annotations_turn_2 = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions_turn_2,
+            completions_A=completions_a_turn_2,
+            completions_B=completions_b_turn_2,
+            provide_explanation=args.provide_explanation,
+            system_prompt=mt_system_prompt,
+            user_prompt_template=mt_user_prompt_template,
+            truncate_input_chars=args.truncate_all_input_chars,
+            use_tqdm=args.use_tqdm,
+        )
+        annotations.extend(annotations_turn_2)
+        metadata_for_annotations.extend(metadata_turn_2)
+        prefs_turn_2 = pd.Series(
+            [
+                score_parser.parse_model_raw(annotation.judge_completion)
+                for annotation in annotations_turn_2
+            ]
+        )
+        preference_parts.append(prefs_turn_2)
+        combined_metadata.extend(metadata_turn_2)
+
+        if args.swap_mode == "both":
+            annotations_turn_2_reversed = annotate_battles(
+                judge_chat_model=judge_chat_model,
+                instructions=instructions_turn_2,
+                completions_A=completions_b_turn_2,
+                completions_B=completions_a_turn_2,
+                provide_explanation=args.provide_explanation,
+                system_prompt=mt_system_prompt,
+                user_prompt_template=mt_user_prompt_template,
+                truncate_input_chars=args.truncate_all_input_chars,
+                use_tqdm=args.use_tqdm,
+            )
+            annotations_reversed.extend(annotations_turn_2_reversed)
+            metadata_for_reversed_annotations.extend(metadata_turn_2)
+            prefs_turn_2_reversed = pd.Series(
+                [
+                    score_parser.parse_model_raw(annotation.judge_completion)
+                    for annotation in annotations_turn_2_reversed
+                ]
+            )
+            preference_parts.append(1 - prefs_turn_2_reversed)
+            combined_metadata.extend(metadata_turn_2)
+
+    prefs = (
+        pd.concat(preference_parts).reset_index(drop=True)
+        if preference_parts
+        else pd.Series(dtype=float)
+    )
+
+    stats = compute_preference_stats(prefs)
+    results = {
+        "dataset": args.dataset,
+        "model_A": args.model_A,
+        "model_B": args.model_B,
+        "judge_model": args.judge_model,
+        **stats,
+        "per_category": _compute_grouped_stats(prefs, combined_metadata, "category"),
+        "per_turn": _compute_grouped_stats(prefs, combined_metadata, "turn"),
+        "preferences": prefs.tolist(),
+        "date": str(datetime.now().isoformat()),
+        "user": os.getenv("USER", ""),
+    }
+    print_results(results)
+
+    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
+    name += f"-{args.swap_mode}"
+    name = name.replace("/", "_")
+
+    res_folder = Path(args.result_folder) / name
+    res_folder.mkdir(parents=True, exist_ok=True)
+
+    with open(res_folder / f"args-{name}.json", "w") as f:
+        json.dump(asdict(args), f, indent=2)
+
+    df = pd.DataFrame(annotations)
+    df["instruction_index"] = [meta["question_id"] for meta in metadata_for_annotations]
+    df["category"] = [meta["category"] for meta in metadata_for_annotations]
+    df["turn"] = [meta["turn"] for meta in metadata_for_annotations]
+    df["model_A"] = args.model_A
+    df["model_B"] = args.model_B
+    df["judge"] = args.judge_model
+    if args.swap_mode == "both":
+        df_reversed = pd.DataFrame(annotations_reversed)
+        df_reversed["instruction_index"] = [
+            meta["question_id"] for meta in metadata_for_reversed_annotations
+        ]
+        df_reversed["category"] = [
+            meta["category"] for meta in metadata_for_reversed_annotations
+        ]
+        df_reversed["turn"] = [
+            meta["turn"] for meta in metadata_for_reversed_annotations
+        ]
+        df_reversed["model_A"] = args.model_B
+        df_reversed["model_B"] = args.model_A
+        df_reversed["judge"] = args.judge_model
+        df = pd.concat([df, df_reversed], ignore_index=True)
+    df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(results, f, indent=2)
