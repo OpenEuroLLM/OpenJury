@@ -14,6 +14,7 @@ from langchain_core.globals import set_llm_cache
 
 data_root = Path(
     os.environ.get("OPENJURY_DATA", Path("~/openjury-data/").expanduser())
+    os.environ.get("OPENJURY_DATA", Path("~/openjury-data/").expanduser())
 ).expanduser()
 
 
@@ -387,10 +388,13 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
     if model_provider == "VLLM":
         chat_template = kwargs.pop("chat_template", None)
         vllm_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        chat_template = kwargs.pop("chat_template", None)
+        vllm_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return ChatVLLM(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
             chat_template=chat_template,
+            **vllm_kwargs,
             **vllm_kwargs,
         )
 

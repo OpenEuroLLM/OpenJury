@@ -79,6 +79,7 @@ class CliArgs:
     max_out_tokens_models: int = 32768
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
+    max_model_len: int | None = None
     chat_template: str | None = None
     mt_bench_turns: str = "both"
 
