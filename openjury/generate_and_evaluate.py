@@ -6,7 +6,7 @@ and then evaluates them using a judge model.
 import argparse
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -75,8 +75,8 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
-
     result_folder: str = "results"
+    engine_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self):
         supported_modes = ["fixed", "both"]
@@ -195,7 +195,26 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
+        parser.add_argument(
+            "--engine_kwargs",
+            type=str,
+            required=False,
+            default="{}",
+            help=(
+                "JSON dict of engine-specific kwargs forwarded to the underlying engine. "
+                "Example for vLLM: '{\"tensor_parallel_size\": 2, \"gpu_memory_utilization\": 0.9}'."
+            ),
+        )
         args = parser.parse_args()
+
+        try:
+            engine_kwargs = (
+                json.loads(args.engine_kwargs) if args.engine_kwargs else {}
+            )
+            if not isinstance(engine_kwargs, dict):
+                raise ValueError("engine_kwargs must be a JSON object")
+        except Exception as e:
+            raise SystemExit(f"Failed to parse --engine_kwargs: {e}")
 
         return cls(
             dataset=args.dataset,
@@ -213,6 +232,7 @@ class CliArgs:
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
             result_folder=args.result_folder,
+            engine_kwargs=engine_kwargs,
         )
 
 
@@ -284,9 +304,25 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len, chat_template=args.chat_template)
+        partial(
+            generate_base,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template, max_model_len=args.max_model_len)
+        else partial(
+            generate_instructions,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
@@ -334,6 +370,7 @@ def main(args: CliArgs):
         max_tokens=args.max_out_tokens_judge,
         max_model_len=args.max_model_len,
         chat_template=args.chat_template,
+        **args.engine_kwargs,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
