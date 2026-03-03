@@ -17,7 +17,6 @@ import pandas as pd
 from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
-from openjury.criteria.pipeline import run_samplewise_criteria_pipeline
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -76,9 +75,6 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
-    enable_criteria: bool = False
-    criteria_name: str = "default"
-    criteria_file: str | None = None
 
     result_folder: str = "results"
 
@@ -199,23 +195,6 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
-        parser.add_argument(
-            "--enable_criteria",
-            action="store_true",
-            help="If specified, run criteria-based samplewise scoring instead of pairwise judge annotation.",
-        )
-        parser.add_argument(
-            "--criteria_name",
-            type=str,
-            default="default",
-            help="Built-in criteria name to use when --enable_criteria is set (currently: default). Ignored if --criteria_file is provided.",
-        )
-        parser.add_argument(
-            "--criteria_file",
-            type=str,
-            default=None,
-            help="Optional path to a custom criteria file (.json/.yaml/.yml). If provided, this overrides --criteria_name.",
-        )
         args = parser.parse_args()
 
         return cls(
@@ -233,9 +212,6 @@ class CliArgs:
             max_out_tokens_judge=args.max_out_tokens_judge,
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
-            enable_criteria=args.enable_criteria,
-            criteria_name=args.criteria_name,
-            criteria_file=args.criteria_file,
             result_folder=args.result_folder,
         )
 
@@ -392,142 +368,92 @@ def main(args: CliArgs):
         json.dump(asdict(args), f, indent=2)
 
     print(f"Saving results to {res_folder}")
-    if args.enable_criteria:
-        criteria_label = args.criteria_file if args.criteria_file is not None else args.criteria_name
-        print(
-            f"Running criteria samplewise scoring with criteria '{criteria_label}'."
-        )
-        eval_instruction_index = instructions.head(n_instructions).index.tolist()
-        eval_instructions = instructions.head(n_instructions).tolist()
-        eval_completions_A = completions_A.head(n_instructions).tolist()
-        eval_completions_B = completions_B.head(n_instructions).tolist()
-
-        run_info = run_samplewise_criteria_pipeline(
-            output_folder=res_folder,
-            output_prefix=name,
-            judge_model=judge_chat_model,
-            instructions=eval_instructions,
-            completions_A=eval_completions_A,
-            completions_B=eval_completions_B,
-            instruction_index=eval_instruction_index,
-            model_A_name=args.model_A,
-            model_B_name=args.model_B,
-            provide_explanation=args.provide_explanation,
-            use_tqdm=args.use_tqdm,
-            criteria_name=args.criteria_name,
-            criteria_file=args.criteria_file,
-            summary_fields={
-                "dataset": args.dataset,
-                "model_A": args.model_A,
-                "model_B": args.model_B,
-                "judge_model": args.judge_model,
-            },
-        )
-        print(
-            f"Saved criteria outputs to {res_folder} "
-            f"(prefix: {run_info['prefix']})."
-        )
-        prefs = pd.Series(run_info["preferences"], dtype="float64")
-        summary = _compute_pref_summary(prefs)
-        results = {
-            "dataset": args.dataset,
-            "model_A": args.model_A,
-            "model_B": args.model_B,
-            "judge_model": args.judge_model,
-            **summary,
-            "preferences": prefs.tolist(),
-            "date": str(datetime.now().isoformat()),
-            "user": os.getenv("USER", ""),
-            "scoring_mode": "criteria_samplewise",
-        }
+    if is_fluency_task:
+        system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
+        model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
+        completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
+        over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
+        the ordering or on the length of the answers."""
     else:
-        if is_fluency_task:
-            system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
-            model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
-            completions from Assistant A and Assistant B and will have to decide which one is best. Make sure to not \
-            over-confidently prefer one assistant or the other and also make sure to not bias your preference based on \
-            the ordering or on the length of the answers."""
-        else:
-            # the default system prompt of annotate is to compare instruction tuned models.
+        # the default system prompt of annotate is to compare instruction tuned models.
+        system_prompt = None
+    annotations = annotate_battles(
+        judge_chat_model=judge_chat_model,
+        instructions=instructions.head(n_instructions).tolist(),
+        completions_A=completions_A.head(n_instructions).tolist(),
+        completions_B=completions_B.head(n_instructions).tolist(),
+        provide_explanation=args.provide_explanation,
+        system_prompt=system_prompt,
+        truncate_input_chars=args.truncate_all_input_chars,
+        use_tqdm=args.use_tqdm,
+    )
 
-            system_prompt = None
-        annotations = annotate_battles(
+    if args.swap_mode == "both":
+        print("Correction for judge bias towards a certain model position is set.")
+        print(
+            f"Evaluating completions with models reversed with judge {args.judge_model}."
+        )
+        annotations_reversed = annotate_battles(
             judge_chat_model=judge_chat_model,
             instructions=instructions.head(n_instructions).tolist(),
-            completions_A=completions_A.head(n_instructions).tolist(),
-            completions_B=completions_B.head(n_instructions).tolist(),
+            completions_A=completions_B.head(n_instructions).tolist(),
+            completions_B=completions_A.head(n_instructions).tolist(),
             provide_explanation=args.provide_explanation,
             system_prompt=system_prompt,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
 
-        if args.swap_mode == "both":
-            print("Correction for judge bias towards a certain model position is set.")
-            print(
-                f"Evaluating completions with models reversed with judge {args.judge_model}."
-            )
-            annotations_reversed = annotate_battles(
-                judge_chat_model=judge_chat_model,
-                instructions=instructions.head(n_instructions).tolist(),
-                completions_A=completions_B.head(n_instructions).tolist(),
-                completions_B=completions_A.head(n_instructions).tolist(),
-                provide_explanation=args.provide_explanation,
-                system_prompt=system_prompt,
-                truncate_input_chars=args.truncate_all_input_chars,
-                use_tqdm=args.use_tqdm,
-            )
+    df = pd.DataFrame(annotations)
+    df["instruction_index"] = instructions.head(n_instructions).index.tolist()
+    df["model_A"] = args.model_A
+    df["model_B"] = args.model_B
+    df["judge"] = args.judge_model
 
-        df = pd.DataFrame(annotations)
-        df["instruction_index"] = instructions.head(n_instructions).index.tolist()
-        df["model_A"] = args.model_A
-        df["model_B"] = args.model_B
-        df["judge"] = args.judge_model
+    if args.swap_mode == "both":
+        df_reversed = pd.DataFrame(annotations_reversed)
+        df_reversed["instruction_index"] = instructions.head(
+            n_instructions
+        ).index.tolist()
+        df_reversed["model_A"] = args.model_B
+        df_reversed["model_B"] = args.model_A
+        df_reversed["judge"] = args.judge_model
+        df = pd.concat([df, df_reversed])
 
-        if args.swap_mode == "both":
-            df_reversed = pd.DataFrame(annotations_reversed)
-            df_reversed["instruction_index"] = instructions.head(
-                n_instructions
-            ).index.tolist()
-            df_reversed["model_A"] = args.model_B
-            df_reversed["model_B"] = args.model_A
-            df_reversed["judge"] = args.judge_model
-            df = pd.concat([df, df_reversed])
+    df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
 
-        df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
+    # compute preferences between A and B
+    score_parser = PairScore()
+    prefs = pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
 
-        # compute preferences between A and B
-        score_parser = PairScore()
-        prefs = pd.Series(
+    if args.swap_mode == "both":
+        prefs_reversed = pd.Series(
             [
                 score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations
+                for annotation in annotations_reversed
             ]
         )
+        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
-        if args.swap_mode == "both":
-            prefs_reversed = pd.Series(
-                [
-                    score_parser.parse_model_raw(annotation.judge_completion)
-                    for annotation in annotations_reversed
-                ]
-            )
-            prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
+    # compute and report statistics
+    summary = _compute_pref_summary(prefs)
 
-        # compute and report statistics
-        summary = _compute_pref_summary(prefs)
-
-        results = {
-            "dataset": args.dataset,
-            "model_A": args.model_A,
-            "model_B": args.model_B,
-            "judge_model": args.judge_model,
-            **summary,
-            "preferences": prefs.tolist(),
-            "date": str(datetime.now().isoformat()),
-            "user": os.getenv("USER", ""),
-            "scoring_mode": "judge_pairwise",
-        }
+    results = {
+        "dataset": args.dataset,
+        "model_A": args.model_A,
+        "model_B": args.model_B,
+        "judge_model": args.judge_model,
+        **summary,
+        "preferences": prefs.tolist(),
+        "date": str(datetime.now().isoformat()),
+        "user": os.getenv("USER", ""),
+        "scoring_mode": "judge_pairwise",
+    }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
 

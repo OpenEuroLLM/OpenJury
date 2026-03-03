@@ -74,25 +74,21 @@ It will then display the results of the battles:
 ============================================================
 ```
 
-### Criteria Evaluation (Optional)
+### Criteria Evaluation
 
-When `--enable_criteria` is set, the pipeline uses criteria-based samplewise
-scoring (instead of direct pairwise judge annotation).
+Criteria-based samplewise scoring is available through a separate entrypoint:
 
 ```bash
-python openjury/generate_and_evaluate.py \
+python openjury/generate_and_score_criteria.py \
   --dataset alpaca-eval \
   --model_A gpt4_1106_preview \
   --model_B VLLM/utter-project/EuroLLM-9B \
   --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
   --n_instructions 10 \
-  --enable_criteria \
   --criteria_name default
 ```
 
-Note: `--swap_mode` applies to pairwise judge annotation only.
-
-To use a custom criteria set, pass a JSON file with a `"criteria"` field:
+To use a custom criteria set, pass a JSON or YAML file with a `"criteria"` field:
 
 ```json
 {
@@ -105,13 +101,12 @@ To use a custom criteria set, pass a JSON file with a `"criteria"` field:
 ```
 
 ```bash
-python openjury/generate_and_evaluate.py \
+python openjury/generate_and_score_criteria.py \
   --dataset alpaca-eval \
   --model_A gpt4_1106_preview \
   --model_B VLLM/utter-project/EuroLLM-9B \
   --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
   --n_instructions 10 \
-  --enable_criteria \
   --criteria_file my_criteria.json
 ```
 
