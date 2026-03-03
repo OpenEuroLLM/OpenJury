@@ -5,8 +5,7 @@ and then evaluates them using a judge model.
 
 import argparse
 import json
-import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
@@ -381,10 +380,6 @@ def main(args: CliArgs):
     res_folder = Path(args.result_folder) / name
     res_folder.mkdir(parents=True, exist_ok=True)
 
-    # save argument for results analysis
-    with open(res_folder / f"args-{name}.json", "w") as f:
-        json.dump(_to_jsonable(asdict(args)), f, indent=2, allow_nan=False)
-
     print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
@@ -441,8 +436,6 @@ def main(args: CliArgs):
         "num_ties": num_ties,
         "num_missing": num_battles - (num_losses + num_wins + num_ties),
         "preferences": prefs.tolist(),
-        "date": str(datetime.now().isoformat()),
-        "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
@@ -464,10 +457,17 @@ def main(args: CliArgs):
                 "model_A": args.model_A,
                 "model_B": args.model_B,
                 "judge_model": args.judge_model,
+                "provide_explanation": args.provide_explanation,
                 "swap_mode": args.swap_mode,
                 "n_instructions": n_instructions,
+                "ignore_cache": args.ignore_cache,
+                "use_tqdm": args.use_tqdm,
+                "truncate_all_input_chars": args.truncate_all_input_chars,
+                "max_out_tokens_models": args.max_out_tokens_models,
+                "max_out_tokens_judge": args.max_out_tokens_judge,
+                "max_model_len": args.max_model_len,
+                "chat_template": args.chat_template,
             },
-            cli_args=asdict(args),
             results=results,
             input_payloads={
                 "instruction_index": eval_instruction_index,
@@ -477,7 +477,6 @@ def main(args: CliArgs):
             },
             extras={
                 "files": {
-                    "args": f"args-{name}.json",
                     "annotations": f"{name}-annotations.csv",
                     "results": f"results-{name}.json",
                 }

@@ -1,20 +1,17 @@
 """Reproducibility metadata helpers.
 
-Writes a compact, versioned run metadata file that captures enough context to
-reproduce a run (args, dependency versions, git state, environment and
-produced artifacts list).
+Writes a compact, versioned run metadata file that captures the essential run
+configuration, result summary, dependency versions, optional git state, and
+produced artifacts list.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import os
 import platform
 import re
-import socket
 import subprocess
-import sys
 import tomllib
 from datetime import datetime, timezone
 from importlib import metadata as importlib_metadata
@@ -53,10 +50,6 @@ def _to_jsonable(value: Any) -> Any:
         except Exception:
             pass
     return str(value)
-
-
-def _stable_json_dumps(value: Any) -> str:
-    return json.dumps(_to_jsonable(value), sort_keys=True, separators=(",", ":"))
 
 
 def _extract_dist_name(requirement_spec: str) -> str | None:
@@ -150,21 +143,16 @@ def _run_git(args: list[str], cwd: Path) -> str | None:
 def _get_git_info(start_path: Path) -> dict[str, Any]:
     repo_root = _run_git(["rev-parse", "--show-toplevel"], cwd=start_path)
     if repo_root is None:
-        return {
-            "repo_root": None,
-            "branch": None,
-            "commit": None,
-        }
+        return {}
 
     root = Path(repo_root)
     branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
     commit = _run_git(["rev-parse", "HEAD"], cwd=root)
-    status = _run_git(["status", "--porcelain"], cwd=root)
-    return {
-        "repo_root": str(root),
+    git_info = {
         "branch": branch,
         "commit": commit,
     }
+    return {key: value for key, value in git_info.items() if value is not None}
 
 
 def _collect_artifacts(output_dir: Path, metadata_filename: str) -> list[dict[str, Any]]:
@@ -184,16 +172,14 @@ def _collect_artifacts(output_dir: Path, metadata_filename: str) -> list[dict[st
     return artifacts
 
 
-def _build_input_summary(input_payloads: dict[str, Any] | None) -> dict[str, Any]:
+def _build_dataset_statistics(input_payloads: dict[str, Any] | None) -> dict[str, Any]:
     if not input_payloads:
         return {}
     summary: dict[str, Any] = {}
     for key, payload in input_payloads.items():
         normalized = _to_jsonable(payload)
         count = len(normalized) if hasattr(normalized, "__len__") else None
-        summary[key] = {
-            "count": count,
-        }
+        summary[f"{key}_count"] = count
     return summary
 
 
@@ -206,6 +192,9 @@ def _compact_results(results: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"value": payload}
 
+    payload.pop("date", None)
+    payload.pop("user", None)
+
     if "preferences" in payload:
         prefs = payload.pop("preferences")
         count = len(prefs) if hasattr(prefs, "__len__") else None
@@ -213,12 +202,42 @@ def _compact_results(results: dict[str, Any] | None) -> dict[str, Any]:
     return payload
 
 
+def _normalize_extras(
+    output_dir: Path, extras: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    if not extras:
+        return None
+
+    normalized = _to_jsonable(extras)
+    if not isinstance(normalized, dict):
+        return {"value": normalized}
+
+    files = normalized.get("files")
+    if isinstance(files, dict):
+        normalized_files: dict[str, Any] = {}
+        for name, raw_path in files.items():
+            path = Path(str(raw_path))
+            if path.is_absolute():
+                try:
+                    relative_path = path.relative_to(output_dir)
+                except ValueError:
+                    normalized_files[str(name)] = {"path": str(path)}
+                else:
+                    normalized_files[str(name)] = {
+                        "relative_path": str(relative_path)
+                    }
+            else:
+                normalized_files[str(name)] = {"relative_path": str(path)}
+        normalized["files"] = normalized_files
+
+    return normalized
+
+
 def write_run_metadata(
     *,
     output_dir: str | Path,
     entrypoint: str,
     run: dict[str, Any],
-    cli_args: dict[str, Any] | None = None,
     results: dict[str, Any] | None = None,
     input_payloads: dict[str, Any] | None = None,
     extras: dict[str, Any] | None = None,
@@ -243,27 +262,24 @@ def write_run_metadata(
             "duration_sec": duration_sec,
         },
         "entrypoint": entrypoint,
-        "command": {
-            "argv": _to_jsonable(sys.argv),
-            "cwd": str(Path.cwd()),
-        },
         "run": _to_jsonable(run),
-        "cli_args": _to_jsonable(cli_args or {}),
         "results": _compact_results(results),
-        "inputs": _build_input_summary(input_payloads),
+        "dataset_statistics": _build_dataset_statistics(input_payloads),
         "environment": {
             "python_version": platform.python_version(),
             "platform": platform.platform(),
-            "hostname": socket.gethostname(),
-            "user": os.getenv("USER", None),
         },
         "dependencies": _get_dependency_versions(
             start_path=Path(__file__).resolve().parent
         ),
-        "git": _get_git_info(start_path=Path(__file__).resolve().parent),
     }
-    if extras:
-        metadata["extras"] = _to_jsonable(extras)
+    git_info = _get_git_info(start_path=Path(__file__).resolve().parent)
+    if git_info:
+        metadata["git"] = git_info
+
+    normalized_extras = _normalize_extras(output_path, extras)
+    if normalized_extras:
+        metadata["extras"] = normalized_extras
 
     metadata["artifacts"] = _collect_artifacts(
         output_path, metadata_filename=metadata_filename
