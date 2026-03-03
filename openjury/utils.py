@@ -299,6 +299,11 @@ def make_model(model: str, max_tokens: int | None = 8192, **engine_kwargs):
         max_tokens: Maximum tokens the model may generate.
         **engine_kwargs: Engine-specific options forwarded to the model wrapper.
     """
+    # Avoid mutating the original engine_kwargs dictionary
+    # NOTE: this is a shallow copy since we are not modifying any
+    # mutable objects in the dictionary.
+    engine_kwargs = engine_kwargs.copy()
+
     # Dedicated arguments like max_tokens always win over engine_kwargs.
     engine_kwargs["max_tokens"] = max_tokens or 8192
 
@@ -312,13 +317,11 @@ def make_model(model: str, max_tokens: int | None = 8192, **engine_kwargs):
 
     # Use our custom ChatVLLM wrapper which properly applies chat templates
     if model_provider == "VLLM":
-
-        chat_template = engine_kwargs.pop("chat_template", None)
         engine_kwargs = {k: v for k, v in engine_kwargs.items() if v is not None}
+        engine_kwargs["chat_template"] = engine_kwargs.get("chat_template", None)
 
         return ChatVLLM(
             model=model_name,
-            chat_template=chat_template,
             **engine_kwargs,
         )
 
