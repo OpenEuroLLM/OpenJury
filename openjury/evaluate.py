@@ -50,26 +50,29 @@ class PairScore:
             return float(m.group(group_index).strip(" "))
 
 
+_COMPLETION_LABEL_SINGLE = "Answer"
+_COMPLETION_LABEL_MULTI_TURN = "Conversation with User"
+_EXPLANATION_SUFFIX = ", first starts with an explanation of your judgement"
+_SCORE_FENCE = "\n```"
+
+
 def load_judge_system_and_user_prompt(
     provide_explanation: bool = True,
     multi_turn: bool = False,
 ) -> tuple[str, str]:
-    # Prepare judge
-    with open(Path(__file__).parent / "prompts" / "system-prompt.txt", "r") as f:
-        system_prompt = str(f.read())
+    prompts_dir = Path(__file__).parent / "prompts"
 
-    if multi_turn:
-        prompt_filename = (
-            "prompt-multi-turn-with-explanation.txt"
-            if provide_explanation
-            else "prompt-multi-turn.txt"
-        )
-    else:
-        prompt_filename = (
-            "prompt-with-explanation.txt" if provide_explanation else "prompt.txt"
-        )
-    with open(Path(__file__).parent / "prompts" / prompt_filename, "r") as f:
-        user_prompt_template = str(f.read())
+    system_prompt = (prompts_dir / "system-prompt.txt").read_text()
+
+    user_prompt_template = (prompts_dir / "prompt.txt").read_text()
+    user_prompt_template = user_prompt_template.replace(
+        "{completion_label}",
+        _COMPLETION_LABEL_MULTI_TURN if multi_turn else _COMPLETION_LABEL_SINGLE,
+    )
+    user_prompt_template = user_prompt_template.replace(
+        "{explanation_suffix}",
+        _EXPLANATION_SUFFIX if provide_explanation else _SCORE_FENCE,
+    )
 
     return system_prompt, user_prompt_template
 
