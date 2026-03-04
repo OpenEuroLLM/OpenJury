@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 openjury = "openjury.generate_and_evaluate:cli"
-openjury-criteria = "openjury.generate_and_score_criteria:cli"
 
 [project]
 name = "llm-judge-eval"

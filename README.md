@@ -74,42 +74,6 @@ It will then display the results of the battles:
 ============================================================
 ```
 
-### Criteria Evaluation
-
-Criteria-based samplewise scoring is available through a separate entrypoint:
-
-```bash
-python openjury/generate_and_score_criteria.py \
-  --dataset alpaca-eval \
-  --model_A gpt4_1106_preview \
-  --model_B VLLM/utter-project/EuroLLM-9B \
-  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
-  --n_instructions 10 \
-  --criteria_name default
-```
-
-To use a custom criteria set, pass a JSON or YAML file with a `"criteria"` field:
-
-```json
-{
-  "name": "my_custom",
-  "criteria": [
-    { "name": "correctness", "description": "Technical correctness" },
-    { "name": "clarity", "description": "Clarity and readability" }
-  ]
-}
-```
-
-```bash
-python openjury/generate_and_score_criteria.py \
-  --dataset alpaca-eval \
-  --model_A gpt4_1106_preview \
-  --model_B VLLM/utter-project/EuroLLM-9B \
-  --judge_model OpenRouter/deepseek/deepseek-chat-v3.1 \
-  --n_instructions 10 \
-  --criteria_file my_criteria.json
-```
-
 ### Length and Token Parameters
 
 The evaluation scripts expose four different length controls with different roles:

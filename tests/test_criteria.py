@@ -2,7 +2,6 @@ import json
 
 import pytest
 
-import openjury.criteria.scorer as scorer_module
 from openjury.criteria.defaults import CRITERIA_BY_NAME
 from openjury.criteria.io import (
     load_criteria_from_file,
@@ -10,36 +9,6 @@ from openjury.criteria.io import (
     load_criteria_from_yaml,
 )
 from openjury.criteria.schema import SCALE_MAX, SCALE_MIN, Criterion, criterion_names
-from openjury.criteria.scorer import (
-    CriteriaScorer,
-    _build_example_json_strings,
-    _build_example_scores,
-)
-
-
-@pytest.fixture
-def fake_prompt_loader(monkeypatch):
-    loaded_names: list[str] = []
-
-    templates = {
-        "criteria_samplewise_system": (
-            "SAMPLEWISE\n{criteria_block}\n"
-            "{explanation_block}\n{example_json}"
-        ),
-        "criteria_samplewise_user": (
-            "Instruction: {instruction}\nCompletion: {completion}"
-        ),
-    }
-
-    def fake_load_prompt(name: str) -> str:
-        loaded_names.append(name)
-        try:
-            return templates[name]
-        except KeyError as exc:
-            raise AssertionError(f"Unexpected prompt requested: {name}") from exc
-
-    monkeypatch.setattr(scorer_module, "_load_prompt_text", fake_load_prompt)
-    return loaded_names
 
 
 def test_get_default_criteria():
@@ -133,57 +102,19 @@ def test_load_criteria_from_file_rejects_unknown_extension(tmp_path):
         load_criteria_from_file(path)
 
 
-def test_build_example_scores_uses_criterion_names_and_clamps_to_scale():
-    criteria = [
-        Criterion(name="tiny", description="tiny scale"),
-        Criterion(name="tight", description="tight scale"),
-        Criterion(name="wide", description="wide scale"),
-    ]
-
-    scores = _build_example_scores(criteria)
-    scores_dec = _build_example_scores(criteria, decrement=10)
-
-    assert set(scores.keys()) == {"tiny", "tight", "wide"}
-    assert scores["tiny"] == 7
-    assert scores["tight"] == 8
-    assert SCALE_MIN <= scores["wide"] <= SCALE_MAX
-
-    assert scores_dec["tiny"] == SCALE_MIN
-    assert scores_dec["tight"] == SCALE_MIN
-    assert scores_dec["wide"] == SCALE_MIN
+def test_criterion_rejects_out_of_range_score_reference():
+    with pytest.raises(ValueError, match="outside the configured scale"):
+        Criterion(
+            name="clarity",
+            description="Clarity",
+            score_references={SCALE_MAX + 1: "Too high"},
+        )
 
 
-def test_build_example_json_string_shape():
-    criteria = [
-        Criterion(name="overall", description="overall quality"),
-        Criterion(name="clarity", description="clarity"),
-    ]
-
-    example_json = _build_example_json_strings(criteria)
-    sample = json.loads(example_json)
-
-    assert set(sample.keys()) == {"overall", "clarity"}
-
-
-def test_criteria_scorer_loads_samplewise_prompts(fake_prompt_loader):
-    criteria = CRITERIA_BY_NAME["default"]
-
-    scorer = CriteriaScorer(
-        judge_model=object(),
-        criteria=criteria,
+def test_criterion_normalizes_score_reference_keys():
+    criterion = Criterion(
+        name="clarity",
+        description="Clarity",
+        score_references={"1": "Poor", str(SCALE_MAX): "Great"},
     )
-    assert fake_prompt_loader == ["criteria_samplewise_system", "criteria_samplewise_user"]
-    assert set(scorer.system_prompt.keys()) == {
-        "samplewise",
-    }
-
-
-def test_criteria_scorer_validates_lengths(fake_prompt_loader):
-    criteria = CRITERIA_BY_NAME["default"]
-
-    scorer = CriteriaScorer(
-        judge_model=object(),
-        criteria=criteria,
-    )
-    with pytest.raises(AssertionError, match="must have the same length"):
-        scorer.score(["i1", "i2"], ["c1"], model_name="dummy")
+    assert criterion.score_references == {SCALE_MIN: "Poor", SCALE_MAX: "Great"}
