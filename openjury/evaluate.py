@@ -66,6 +66,25 @@ def load_judge_system_and_user_prompt(
     return system_prompt, user_prompt_template
 
 
+def resolve_judge_prompts(
+    *,
+    provide_explanation: bool,
+    system_prompt: str | None = None,
+    user_prompt_template: str | None = None,
+) -> tuple[str, str]:
+    default_system_prompt, default_user_prompt_template = (
+        load_judge_system_and_user_prompt(provide_explanation=provide_explanation)
+    )
+    return (
+        system_prompt if system_prompt is not None else default_system_prompt,
+        (
+            user_prompt_template
+            if user_prompt_template is not None
+            else default_user_prompt_template
+        ),
+    )
+
+
 def evaluate_completions(
     dataset: str = "alpaca-eval",
     judge_chat_model: LLM = None,
@@ -140,6 +159,11 @@ def evaluate_completions(
 
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
+    (
+        judge_system_prompt,
+        judge_user_prompt_template,
+    ) = resolve_judge_prompts(provide_explanation=provide_explanation)
+
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.tolist(),
@@ -205,6 +229,8 @@ def evaluate_completions(
                     "results": "results.json",
                 }
             },
+            judge_system_prompt=judge_system_prompt,
+            judge_user_prompt_template=judge_user_prompt_template,
             started_at_utc=run_started_at,
         )
     except Exception as e:
@@ -261,14 +287,11 @@ def annotate_battles(
     # alternatively pass list of tuples
     assert len(instructions) == len(completions_A) == len(completions_B)
 
-    (
-        default_system_prompt,
-        default_user_prompt_template,
-    ) = load_judge_system_and_user_prompt(provide_explanation=provide_explanation)
-    if system_prompt is None:
-        system_prompt = default_system_prompt
-    if user_prompt_template is None:
-        user_prompt_template = default_user_prompt_template
+    system_prompt, user_prompt_template = resolve_judge_prompts(
+        provide_explanation=provide_explanation,
+        system_prompt=system_prompt,
+        user_prompt_template=user_prompt_template,
+    )
 
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]

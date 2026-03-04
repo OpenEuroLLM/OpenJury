@@ -13,7 +13,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate_battles, PairScore
+from openjury.evaluate import (
+    annotate_battles,
+    PairScore,
+    resolve_judge_prompts,
+)
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
 from openjury.repro import write_run_metadata, _to_jsonable
@@ -346,6 +350,13 @@ def main(args: CliArgs):
         # the default system prompt of annotate is to compare instruction tuned models.
 
         system_prompt = None
+    (
+        effective_judge_system_prompt,
+        judge_user_prompt_template,
+    ) = resolve_judge_prompts(
+        provide_explanation=args.provide_explanation,
+        system_prompt=system_prompt,
+    )
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.head(n_instructions).tolist(),
@@ -481,6 +492,8 @@ def main(args: CliArgs):
                     "results": f"results-{name}.json",
                 }
             },
+            judge_system_prompt=effective_judge_system_prompt,
+            judge_user_prompt_template=judge_user_prompt_template,
             started_at_utc=run_started_at,
         )
     except Exception as e:

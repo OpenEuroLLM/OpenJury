@@ -117,14 +117,18 @@ def test_generate_and_evaluate_writes_run_metadata(tmp_path):
     assert metadata["dataset_statistics"]["instructions_count"] == 3
     assert metadata["dataset_statistics"]["completions_A_count"] == 3
     assert metadata["dataset_statistics"]["completions_B_count"] == 3
+    assert len(metadata["instruction_indices_sha256"]) == 64
+    assert len(metadata["judge_system_prompt_sha256"]) == 64
+    assert len(metadata["judge_user_prompt_template_sha256"]) == 64
     assert "date" not in metadata["results"]
     assert "user" not in metadata["results"]
     assert "preferences" not in metadata["results"]
     assert metadata["results"]["preferences_count"] == 3
     assert "hostname" not in metadata["environment"]
     assert "user" not in metadata["environment"]
-    if "git" in metadata:
-        assert "repo_root" not in metadata["git"]
+    assert "git" not in metadata
+    if "git_hash" in metadata:
+        assert len(metadata["git_hash"]) == 40
     artifact_paths = {artifact["path"] for artifact in metadata["artifacts"]}
     assert not any(path.startswith("args-") for path in artifact_paths)
     assert any(path.endswith("-annotations.csv") for path in artifact_paths)

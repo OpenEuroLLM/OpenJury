@@ -7,6 +7,7 @@ produced artifacts list.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import platform
@@ -50,6 +51,31 @@ def _to_jsonable(value: Any) -> Any:
         except Exception:
             pass
     return str(value)
+
+
+def _stable_json_dumps(value: Any) -> str:
+    return json.dumps(
+        _to_jsonable(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def _hash_string_sha256(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_normalized_set_sha256(values: list[Any] | None) -> str | None:
+    if values is None:
+        return None
+
+    normalized_by_key: dict[str, Any] = {}
+    for value in values:
+        normalized = _to_jsonable(value)
+        normalized_by_key[_stable_json_dumps(normalized)] = normalized
+
+    normalized_values = [normalized_by_key[key] for key in sorted(normalized_by_key)]
+    return _hash_string_sha256(_stable_json_dumps(normalized_values))
 
 
 def _extract_dist_name(requirement_spec: str) -> str | None:
@@ -140,19 +166,13 @@ def _run_git(args: list[str], cwd: Path) -> str | None:
         return None
 
 
-def _get_git_info(start_path: Path) -> dict[str, Any]:
+def _get_git_hash(start_path: Path) -> str | None:
     repo_root = _run_git(["rev-parse", "--show-toplevel"], cwd=start_path)
     if repo_root is None:
-        return {}
+        return None
 
     root = Path(repo_root)
-    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
-    commit = _run_git(["rev-parse", "HEAD"], cwd=root)
-    git_info = {
-        "branch": branch,
-        "commit": commit,
-    }
-    return {key: value for key, value in git_info.items() if value is not None}
+    return _run_git(["rev-parse", "HEAD"], cwd=root)
 
 
 def _collect_artifacts(output_dir: Path, metadata_filename: str) -> list[dict[str, Any]]:
@@ -241,6 +261,8 @@ def write_run_metadata(
     results: dict[str, Any] | None = None,
     input_payloads: dict[str, Any] | None = None,
     extras: dict[str, Any] | None = None,
+    judge_system_prompt: str | None = None,
+    judge_user_prompt_template: str | None = None,
     started_at_utc: datetime | None = None,
     metadata_filename: str = METADATA_FILENAME,
 ) -> Path:
@@ -273,9 +295,28 @@ def write_run_metadata(
             start_path=Path(__file__).resolve().parent
         ),
     }
-    git_info = _get_git_info(start_path=Path(__file__).resolve().parent)
-    if git_info:
-        metadata["git"] = git_info
+    git_hash = _get_git_hash(start_path=Path(__file__).resolve().parent)
+    if git_hash:
+        metadata["git_hash"] = git_hash
+
+    instruction_indices = None
+    if input_payloads and "instruction_index" in input_payloads:
+        raw_indices = _to_jsonable(input_payloads["instruction_index"])
+        if isinstance(raw_indices, list):
+            instruction_indices = raw_indices
+    instruction_indices_hash = _hash_normalized_set_sha256(instruction_indices)
+    if instruction_indices_hash:
+        metadata["instruction_indices_sha256"] = instruction_indices_hash
+
+    judge_system_prompt_hash = _hash_string_sha256(judge_system_prompt)
+    if judge_system_prompt_hash:
+        metadata["judge_system_prompt_sha256"] = judge_system_prompt_hash
+
+    judge_user_prompt_template_hash = _hash_string_sha256(judge_user_prompt_template)
+    if judge_user_prompt_template_hash:
+        metadata["judge_user_prompt_template_sha256"] = (
+            judge_user_prompt_template_hash
+        )
 
     normalized_extras = _normalize_extras(output_path, extras)
     if normalized_extras:
