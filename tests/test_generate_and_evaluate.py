@@ -114,6 +114,44 @@ def test_generate_and_evaluate_correct_order_bias(tmp_path):
     assert avg_pref == 0.5
 
 
+def test_main_non_mt_bench_reuses_judge_turn(monkeypatch, tmp_path):
+    captured = {"calls": 0, "kwargs": None}
+
+    def _judge_turn_stub(**kwargs):
+        captured["calls"] += 1
+        captured["kwargs"] = kwargs
+        return (
+            [{"judge_completion": "score A: 0 score B: 10"}],
+            [],
+            [{"instruction_index": 0}],
+            [],
+            pd.Series([1.0]),
+            [{"instruction_index": 0}],
+        )
+
+    monkeypatch.setattr(
+        generate_and_evaluate,
+        "_judge_turn",
+        _judge_turn_stub,
+    )
+
+    prefs = main_generate_and_eval(
+        CliArgs(
+            dataset="alpaca-eval",
+            model_A="Dummy/no answer",
+            model_B="Dummy/open is better than close isnt'it",
+            judge_model="Dummy/score A: 0 score B: 10",
+            n_instructions=1,
+            result_folder=str(tmp_path),
+        )
+    )
+
+    assert captured["calls"] == 1
+    assert captured["kwargs"]["swap_mode"] == "fixed"
+    assert captured["kwargs"]["metadata"] == [{"instruction_index": 0}]
+    assert prefs.tolist() == [1.0]
+
+
 def test_format_mt_bench_turn_2_uses_conversation_blocks():
     questions = pd.DataFrame(
         {
@@ -180,7 +218,7 @@ def test_format_mt_bench_turn_2_uses_conversation_blocks():
     assert "[MT-Bench | Turn 1]" in instructions_turn_1[0]
 
 
-def test_mt_bench_pairwise():
+def test_mt_bench_pairwise(tmp_path):
     """Test MT-Bench pipeline through score-based parsing."""
     prefs = main_generate_and_eval(
         CliArgs(
@@ -189,6 +227,7 @@ def test_mt_bench_pairwise():
             model_B="Dummy/another answer",
             judge_model="Dummy/score A: 10 score B: 0",
             n_instructions=5,
+            result_folder=str(tmp_path),
         )
     )
 
@@ -196,7 +235,7 @@ def test_mt_bench_pairwise():
     assert len(prefs) == 10  # two turns per question
 
 
-def test_mt_bench_swap_mode():
+def test_mt_bench_swap_mode(tmp_path):
     """Test that MT-Bench swap mode doubles the annotations and corrects bias."""
     prefs = main_generate_and_eval(
         CliArgs(
@@ -206,6 +245,7 @@ def test_mt_bench_swap_mode():
             judge_model="Dummy/score A: 10 score B: 0",
             n_instructions=3,
             swap_mode="both",
+            result_folder=str(tmp_path),
         )
     )
 
@@ -213,7 +253,7 @@ def test_mt_bench_swap_mode():
     assert float(sum(prefs) / len(prefs)) == pytest.approx(0.5)
 
 
-def test_mt_bench_single_turn_only():
+def test_mt_bench_single_turn_only(tmp_path):
     """Test MT-Bench single-turn-only evaluation (--mt_bench_turns single)."""
     prefs = main_generate_and_eval(
         CliArgs(
@@ -223,6 +263,7 @@ def test_mt_bench_single_turn_only():
             judge_model="Dummy/score A: 10 score B: 0",
             n_instructions=5,
             mt_bench_turns="single",
+            result_folder=str(tmp_path),
         )
     )
 
@@ -230,7 +271,7 @@ def test_mt_bench_single_turn_only():
     assert len(prefs) == 5  # one annotation per question, turn 1 only
 
 
-def test_mt_bench_multi_turn_only():
+def test_mt_bench_multi_turn_only(tmp_path):
     """Test MT-Bench multi-turn-only evaluation (--mt_bench_turns multi)."""
     prefs = main_generate_and_eval(
         CliArgs(
@@ -240,6 +281,7 @@ def test_mt_bench_multi_turn_only():
             judge_model="Dummy/score A: 0 score B: 10",
             n_instructions=5,
             mt_bench_turns="multi",
+            result_folder=str(tmp_path),
         )
     )
 

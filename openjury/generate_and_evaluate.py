@@ -253,9 +253,7 @@ def print_results(results):
     print(f"   ✅ Wins:   {results['num_wins']}")
     print(f"   ❌ Losses: {results['num_losses']}")
     print(f"   🤝 Ties:   {results['num_ties']}")
-    if "num_errors" in results:
-        print(f"   ⚠️ Errors: {results['num_errors']}")
-    if "num_missing" in results:
+    if results.get("num_missing", 0) > 0:
         print(f"   ❓ Missing: {results['num_missing']}")
 
     per_category = results.get("per_category")
@@ -465,6 +463,92 @@ def _compute_grouped_stats(
     }
 
 
+def _parse_preferences_from_annotations(
+    annotations: list,
+    score_parser: PairScore,
+) -> pd.Series:
+    return pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
+
+
+def _judge_turn(
+    *,
+    judge_chat_model,
+    instructions: list[str],
+    completions_A: list[str],
+    completions_B: list[str],
+    metadata: list[dict[str, object]],
+    score_parser: PairScore,
+    provide_explanation: bool,
+    swap_mode: str,
+    truncate_input_chars: int | None,
+    use_tqdm: bool,
+    system_prompt: str | None = None,
+    user_prompt_template: str | None = None,
+) -> tuple[
+    list,
+    list,
+    list[dict[str, object]],
+    list[dict[str, object]],
+    pd.Series,
+    list[dict[str, object]],
+]:
+    if not instructions:
+        return [], [], [], [], pd.Series(dtype=float), []
+
+    annotations = annotate_battles(
+        judge_chat_model=judge_chat_model,
+        instructions=instructions,
+        completions_A=completions_A,
+        completions_B=completions_B,
+        provide_explanation=provide_explanation,
+        system_prompt=system_prompt,
+        user_prompt_template=user_prompt_template,
+        truncate_input_chars=truncate_input_chars,
+        use_tqdm=use_tqdm,
+    )
+    preference_parts = [_parse_preferences_from_annotations(annotations, score_parser)]
+
+    annotations_reversed: list = []
+    metadata_for_reversed_annotations: list[dict[str, object]] = []
+    combined_metadata = list(metadata)
+
+    if swap_mode == "both":
+        print("Correction for judge bias towards a certain model position is set.")
+        print("Evaluating completions with models reversed.")
+        annotations_reversed = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions,
+            completions_A=completions_B,
+            completions_B=completions_A,
+            provide_explanation=provide_explanation,
+            system_prompt=system_prompt,
+            user_prompt_template=user_prompt_template,
+            truncate_input_chars=truncate_input_chars,
+            use_tqdm=use_tqdm,
+        )
+        prefs_reversed = _parse_preferences_from_annotations(
+            annotations_reversed, score_parser
+        )
+        preference_parts.append(1 - prefs_reversed)
+        metadata_for_reversed_annotations = list(metadata)
+        combined_metadata.extend(metadata)
+
+    preferences = pd.concat(preference_parts).reset_index(drop=True)
+    return (
+        annotations,
+        annotations_reversed,
+        list(metadata),
+        metadata_for_reversed_annotations,
+        preferences,
+        combined_metadata,
+    )
+
+
 def main(args: CliArgs):
     """
     1) take as input:
@@ -574,32 +658,31 @@ def main(args: CliArgs):
         # the default system prompt of annotate is to compare instruction tuned models.
 
         system_prompt = None
-    annotations = annotate_battles(
+
+    instruction_subset = instructions.head(n_instructions)
+    instruction_indices = instruction_subset.index.tolist()
+    metadata = [{"instruction_index": idx} for idx in instruction_indices]
+    score_parser = PairScore()
+    (
+        annotations,
+        annotations_reversed,
+        metadata_for_annotations,
+        metadata_for_reversed_annotations,
+        prefs,
+        _combined_metadata,
+    ) = _judge_turn(
         judge_chat_model=judge_chat_model,
-        instructions=instructions.head(n_instructions).tolist(),
+        instructions=instruction_subset.tolist(),
         completions_A=completions_A.head(n_instructions).tolist(),
         completions_B=completions_B.head(n_instructions).tolist(),
+        metadata=metadata,
+        score_parser=score_parser,
         provide_explanation=args.provide_explanation,
-        system_prompt=system_prompt,
+        swap_mode=args.swap_mode,
         truncate_input_chars=args.truncate_all_input_chars,
         use_tqdm=args.use_tqdm,
+        system_prompt=system_prompt,
     )
-
-    if args.swap_mode == "both":
-        print("Correction for judge bias towards a certain model position is set.")
-        print(
-            f"Evaluating completions with models reversed with judge {args.judge_model}."
-        )
-        annotations_reversed = annotate_battles(
-            judge_chat_model=judge_chat_model,
-            instructions=instructions.head(n_instructions).tolist(),
-            completions_A=completions_B.head(n_instructions).tolist(),
-            completions_B=completions_A.head(n_instructions).tolist(),
-            provide_explanation=args.provide_explanation,
-            system_prompt=system_prompt,
-            truncate_input_chars=args.truncate_all_input_chars,
-            use_tqdm=args.use_tqdm,
-        )
 
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
     name += f"-{args.swap_mode}"
@@ -614,40 +697,24 @@ def main(args: CliArgs):
 
     print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
-    df["instruction_index"] = instructions.head(n_instructions).index.tolist()
+    df["instruction_index"] = [
+        meta["instruction_index"] for meta in metadata_for_annotations
+    ]
     df["model_A"] = args.model_A
     df["model_B"] = args.model_B
     df["judge"] = args.judge_model
 
     if args.swap_mode == "both":
         df_reversed = pd.DataFrame(annotations_reversed)
-        df_reversed["instruction_index"] = instructions.head(
-            n_instructions
-        ).index.tolist()
+        df_reversed["instruction_index"] = [
+            meta["instruction_index"] for meta in metadata_for_reversed_annotations
+        ]
         df_reversed["model_A"] = args.model_B
         df_reversed["model_B"] = args.model_A
         df_reversed["judge"] = args.judge_model
         df = pd.concat([df, df_reversed])
 
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
-
-    # compute preferences between A and B
-    score_parser = PairScore()
-    prefs = pd.Series(
-        [
-            score_parser.parse_model_raw(annotation.judge_completion)
-            for annotation in annotations
-        ]
-    )
-
-    if args.swap_mode == "both":
-        prefs_reversed = pd.Series(
-            [
-                score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations_reversed
-            ]
-        )
-        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     stats = compute_preference_stats(prefs)
     results = {
@@ -745,46 +812,33 @@ def _run_mt_bench(args: CliArgs, ignore_cache: bool):
         print("Running reversed evaluation for position bias correction.")
 
     if instructions_turn_1:
-        annotations_turn_1 = annotate_battles(
+        (
+            annotations_turn_1,
+            annotations_turn_1_reversed,
+            metadata_turn_1_for_annotations,
+            metadata_turn_1_for_reversed_annotations,
+            prefs_turn_1,
+            combined_metadata_turn_1,
+        ) = _judge_turn(
             judge_chat_model=judge_chat_model,
             instructions=instructions_turn_1,
             completions_A=completions_a_turn_1,
             completions_B=completions_b_turn_1,
+            metadata=metadata_turn_1,
+            score_parser=score_parser,
             provide_explanation=args.provide_explanation,
+            swap_mode=args.swap_mode,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
         annotations.extend(annotations_turn_1)
-        metadata_for_annotations.extend(metadata_turn_1)
-        prefs_turn_1 = pd.Series(
-            [
-                score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations_turn_1
-            ]
+        annotations_reversed.extend(annotations_turn_1_reversed)
+        metadata_for_annotations.extend(metadata_turn_1_for_annotations)
+        metadata_for_reversed_annotations.extend(
+            metadata_turn_1_for_reversed_annotations
         )
         preference_parts.append(prefs_turn_1)
-        combined_metadata.extend(metadata_turn_1)
-
-        if args.swap_mode == "both":
-            annotations_turn_1_reversed = annotate_battles(
-                judge_chat_model=judge_chat_model,
-                instructions=instructions_turn_1,
-                completions_A=completions_b_turn_1,
-                completions_B=completions_a_turn_1,
-                provide_explanation=args.provide_explanation,
-                truncate_input_chars=args.truncate_all_input_chars,
-                use_tqdm=args.use_tqdm,
-            )
-            annotations_reversed.extend(annotations_turn_1_reversed)
-            metadata_for_reversed_annotations.extend(metadata_turn_1)
-            prefs_turn_1_reversed = pd.Series(
-                [
-                    score_parser.parse_model_raw(annotation.judge_completion)
-                    for annotation in annotations_turn_1_reversed
-                ]
-            )
-            preference_parts.append(1 - prefs_turn_1_reversed)
-            combined_metadata.extend(metadata_turn_1)
+        combined_metadata.extend(combined_metadata_turn_1)
 
     if instructions_turn_2:
         (
@@ -794,50 +848,35 @@ def _run_mt_bench(args: CliArgs, ignore_cache: bool):
             provide_explanation=args.provide_explanation,
             multi_turn=True,
         )
-        annotations_turn_2 = annotate_battles(
+        (
+            annotations_turn_2,
+            annotations_turn_2_reversed,
+            metadata_turn_2_for_annotations,
+            metadata_turn_2_for_reversed_annotations,
+            prefs_turn_2,
+            combined_metadata_turn_2,
+        ) = _judge_turn(
             judge_chat_model=judge_chat_model,
             instructions=instructions_turn_2,
             completions_A=completions_a_turn_2,
             completions_B=completions_b_turn_2,
+            metadata=metadata_turn_2,
+            score_parser=score_parser,
             provide_explanation=args.provide_explanation,
-            system_prompt=mt_system_prompt,
-            user_prompt_template=mt_user_prompt_template,
+            swap_mode=args.swap_mode,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
+            system_prompt=mt_system_prompt,
+            user_prompt_template=mt_user_prompt_template,
         )
         annotations.extend(annotations_turn_2)
-        metadata_for_annotations.extend(metadata_turn_2)
-        prefs_turn_2 = pd.Series(
-            [
-                score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations_turn_2
-            ]
+        annotations_reversed.extend(annotations_turn_2_reversed)
+        metadata_for_annotations.extend(metadata_turn_2_for_annotations)
+        metadata_for_reversed_annotations.extend(
+            metadata_turn_2_for_reversed_annotations
         )
         preference_parts.append(prefs_turn_2)
-        combined_metadata.extend(metadata_turn_2)
-
-        if args.swap_mode == "both":
-            annotations_turn_2_reversed = annotate_battles(
-                judge_chat_model=judge_chat_model,
-                instructions=instructions_turn_2,
-                completions_A=completions_b_turn_2,
-                completions_B=completions_a_turn_2,
-                provide_explanation=args.provide_explanation,
-                system_prompt=mt_system_prompt,
-                user_prompt_template=mt_user_prompt_template,
-                truncate_input_chars=args.truncate_all_input_chars,
-                use_tqdm=args.use_tqdm,
-            )
-            annotations_reversed.extend(annotations_turn_2_reversed)
-            metadata_for_reversed_annotations.extend(metadata_turn_2)
-            prefs_turn_2_reversed = pd.Series(
-                [
-                    score_parser.parse_model_raw(annotation.judge_completion)
-                    for annotation in annotations_turn_2_reversed
-                ]
-            )
-            preference_parts.append(1 - prefs_turn_2_reversed)
-            combined_metadata.extend(metadata_turn_2)
+        combined_metadata.extend(combined_metadata_turn_2)
 
     prefs = (
         pd.concat(preference_parts).reset_index(drop=True)

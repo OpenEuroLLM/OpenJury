@@ -436,22 +436,12 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
 
 
 def download_all():
+    from openjury.instruction_dataset.mt_bench import download_mt_bench
+
     print(f"Downloading all dataset in {data_root}")
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
         local_path_tables = data_root / "tables"
         download_hf(name=dataset, local_path=local_path_tables)
-
-    # MT-Bench questions live in the LMSYS HuggingFace space.
-    snapshot_download(
-        repo_id="lmsys/mt-bench",
-        repo_type="space",
-        allow_patterns=[
-            "data/mt_bench/question.jsonl",
-            "data/mt_bench/reference_answer/*",
-        ],
-        local_dir=data_root / "mt-bench",
-        force_download=False,
-    )
 
     snapshot_download(
         repo_id="geoalgo/multilingual-contexts-to-be-completed",
@@ -460,6 +450,8 @@ def download_all():
         local_dir=data_root / "contexts",
         force_download=False,
     )
+
+    download_mt_bench()
 
 
 class Timeblock:
