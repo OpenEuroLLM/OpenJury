@@ -111,7 +111,7 @@ def test_generate_and_evaluate_correct_order_bias(tmp_path):
     )
 
     avg_pref = sum(prefs) / len(prefs)
-    assert avg_pref == 0.5
+    assert avg_pref == pytest.approx(0.5)
 
 
 def test_main_non_mt_bench_reuses_judge_turn(monkeypatch, tmp_path):
@@ -287,3 +287,41 @@ def test_mt_bench_multi_turn_only(tmp_path):
 
     assert all(p > 0.5 for p in prefs)
     assert len(prefs) == 5  # one annotation per question, turn 2 only
+
+
+def test_mt_bench_fastchat_fixed_verdicts(tmp_path):
+    """FastChat-compatible MT-Bench judging uses [[A]]/[[B]]/[[C]] parsing."""
+    prefs = main_generate_and_eval(
+        CliArgs(
+            dataset="mt-bench",
+            model_A="Dummy/answer A",
+            model_B="Dummy/answer B",
+            judge_model="Dummy/[[A]]",
+            n_instructions=5,
+            mt_bench_compatibility="fastchat",
+            result_folder=str(tmp_path),
+        )
+    )
+
+    assert len(prefs) == 10  # two turns per question
+    assert all(p < 0.5 for p in prefs)
+
+
+def test_mt_bench_fastchat_conservative_swap_mode(tmp_path):
+    """FastChat-compatible swap_mode='both' is conservative (tie if inconsistent)."""
+    prefs = main_generate_and_eval(
+        CliArgs(
+            dataset="mt-bench",
+            model_A="Dummy/answer A",
+            model_B="Dummy/answer B",
+            judge_model="Dummy/[[A]]",  # position-A biased judge
+            n_instructions=3,
+            swap_mode="both",
+            mt_bench_compatibility="fastchat",
+            result_folder=str(tmp_path),
+        )
+    )
+
+    # Conservative swap runs both orders, but returns one resolved verdict per match.
+    assert len(prefs) == 6  # 3 questions * 2 turns
+    assert all(p == pytest.approx(0.5) for p in prefs)
