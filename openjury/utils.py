@@ -407,7 +407,7 @@ def make_model(
     model: str,
     max_tokens: int | None = 8192,
     temperature: float | None = None,
-    **kwargs,
+    **engine_kwargs,
 ):
     """Instantiate a model wrapper from a provider/model-name string.
 
@@ -417,10 +417,18 @@ def make_model(
         max_tokens: Maximum tokens the model may generate.
         temperature: Optional generation temperature override. ``None`` keeps
             each provider wrapper's default temperature behavior.
-        **kwargs: Provider-specific options forwarded to the model wrapper.
-            For VLLM these include ``max_model_len``, ``chat_template``, and
-            any other ``vllm.LLM`` constructor arguments.
+        **engine_kwargs: Engine-specific options forwarded to the model wrapper.
     """
+    # Avoid mutating the original engine_kwargs dictionary
+    # NOTE: this is a shallow copy since we are not modifying any
+    # mutable objects in the dictionary.
+    engine_kwargs = engine_kwargs.copy()
+
+    # Dedicated arguments like max_tokens always win over engine_kwargs.
+    engine_kwargs["max_tokens"] = max_tokens or 8192
+    if temperature is not None:
+        engine_kwargs["temperature"] = temperature
+
     model_provider = model.split("/")[0]
 
     if model_provider == "Dummy":
@@ -431,39 +439,30 @@ def make_model(
 
     # Use our custom ChatVLLM wrapper which properly applies chat templates
     if model_provider == "VLLM":
-        chat_template = kwargs.pop("chat_template", None)
-        vllm_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        engine_kwargs = {k: v for k, v in engine_kwargs.items() if v is not None}
+        engine_kwargs["chat_template"] = engine_kwargs.get("chat_template", None)
+
         return ChatVLLM(
             model=model_name,
-            max_tokens=max_tokens if max_tokens else 8192,
-            temperature=temperature if temperature is not None else 0.6,
-            chat_template=chat_template,
-            **vllm_kwargs,
+            **engine_kwargs,
         )
-
-    model_kwargs = {}
-    if max_tokens is not None:
-        model_kwargs["max_tokens"] = max_tokens
-    if temperature is not None:
-        model_kwargs["temperature"] = temperature
-
     if model_provider == "OpenRouter":
         # Special case we need to override API url and key
         return ChatOpenAI(
             api_key=os.getenv("OPENROUTER_API_KEY"),
             base_url="https://openrouter.ai/api/v1",
             model=model_name,
-            **model_kwargs,
+            **engine_kwargs,
         )
     elif model_provider == "LlamaCpp":
-        model_kwargs["model_path"] = model_name
-        model_kwargs.setdefault("n_ctx", 0)
-        return ChatLlamaCppModel(**model_kwargs)
+        engine_kwargs["model_path"] = model_name
+        engine_kwargs.setdefault("n_ctx", 0)
+        return ChatLlamaCppModel(**engine_kwargs)
     else:
         model_classes = [
             ChatOpenAI,
         ]
-        model_kwargs["model"] = model_name
+        engine_kwargs["model"] = model_name
 
         try:
             from langchain_together.llms import Together
@@ -475,13 +474,13 @@ def make_model(
             from langchain_openai.llms import OpenAI
 
             model_classes.append(OpenAI)
-        except ImportError:
+        except ImportError as e:
             print(str(e))
         model_cls_dict = {model_cls.__name__: model_cls for model_cls in model_classes}
         assert (
             model_provider in model_cls_dict
         ), f"{model_provider} not available, choose among {list(model_cls_dict.keys())}"
-        return model_cls_dict[model_provider](**model_kwargs)
+        return model_cls_dict[model_provider](**engine_kwargs)
 
 
 def download_all():
