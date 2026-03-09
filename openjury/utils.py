@@ -486,6 +486,7 @@ def make_model(
 
 def download_all():
     from openjury.instruction_dataset.mt_bench import download_mt_bench
+    from openjury.instruction_dataset.mt_bench_101 import download_mt_bench_101
 
     print(f"Downloading all dataset in {data_root}")
     for dataset in ["alpaca-eval", "arena-hard", "m-arena-hard"]:
@@ -501,6 +502,7 @@ def download_all():
     )
 
     download_mt_bench()
+    download_mt_bench_101()
 
 
 class Timeblock:

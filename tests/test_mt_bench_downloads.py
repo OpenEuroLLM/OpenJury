@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import openjury.instruction_dataset.mt_bench as mt_bench
+import openjury.instruction_dataset.mt_bench_101 as mt_bench_101
 import openjury.utils as utils
 
 
@@ -36,7 +37,7 @@ def test_download_mt_bench_skips_question_download_if_cached(tmp_path, monkeypat
 
 def test_download_all_includes_mt_bench(tmp_path, monkeypatch):
     hf_datasets = []
-    calls = {"contexts": 0, "mt_bench": 0}
+    calls = {"contexts": 0, "mt_bench": 0, "mt_bench_101": 0}
 
     monkeypatch.setattr(utils, "data_root", tmp_path)
     monkeypatch.setattr(
@@ -54,6 +55,11 @@ def test_download_all_includes_mt_bench(tmp_path, monkeypatch):
         "download_mt_bench",
         lambda: calls.__setitem__("mt_bench", calls["mt_bench"] + 1),
     )
+    monkeypatch.setattr(
+        mt_bench_101,
+        "download_mt_bench_101",
+        lambda: calls.__setitem__("mt_bench_101", calls["mt_bench_101"] + 1),
+    )
 
     utils.download_all()
 
@@ -64,3 +70,4 @@ def test_download_all_includes_mt_bench(tmp_path, monkeypatch):
     ]
     assert calls["contexts"] == 1
     assert calls["mt_bench"] == 1
+    assert calls["mt_bench_101"] == 1

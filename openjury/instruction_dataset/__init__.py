@@ -4,10 +4,19 @@ from openjury.utils import data_root, download_hf, read_df
 
 
 def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.DataFrame:
+    apply_head_after_index = True
     if dataset == "mt-bench":
         from openjury.instruction_dataset.mt_bench import load_mt_bench
 
         df_instructions = load_mt_bench()
+
+    elif dataset == "mt-bench-101":
+        from openjury.instruction_dataset.mt_bench_101 import load_mt_bench_101
+
+        # MT-Bench-101 is expanded into turn-level eval items in its loader.
+        # Keep n_instructions semantics as "number of dialogues to load".
+        df_instructions = load_mt_bench_101(n_dialogues=n_instructions)
+        apply_head_after_index = False
 
     elif "m-arena-hard" in dataset:
         if dataset == "m-arena-hard":
@@ -64,6 +73,8 @@ def load_instructions(dataset: str, n_instructions: int | None = None) -> pd.Dat
 
     df_instructions = df_instructions.set_index("instruction_index").sort_index()
     print(f"Loaded {len(df_instructions)} instructions for {dataset}.")
+    if not apply_head_after_index:
+        return df_instructions
     if n_instructions is None:
         n_instructions = len(df_instructions)
     return df_instructions.head(n_instructions)
