@@ -214,15 +214,25 @@ class ChatLlamaCppModel(BaseLocalModel):
 
     Unlike langchain's ``ChatLlamaCpp``, this wrapper explicitly calls
     ``Llama.reset()`` between conversations to clear stale KV-cache state.
+
+    Sampling defaults:
+        - ``temperature=None`` means do not pass temperature explicitly and keep
+          llama-cpp's backend default behavior.
     """
 
     def __init__(
-        self, model_path: str, max_tokens: int = 1024, n_ctx: int = 0, **kwargs
+        self,
+        model_path: str,
+        max_tokens: int = 1024,
+        n_ctx: int = 0,
+        temperature: float | None = None,
+        **kwargs,
     ):
         from llama_cpp import Llama
 
         self.model_path = model_path
         self.max_tokens = max_tokens
+        self.temperature = temperature
         self.llama = Llama(
             model_path=model_path,
             n_ctx=n_ctx,
@@ -249,19 +259,22 @@ class ChatLlamaCppModel(BaseLocalModel):
             self.llama.reset()
             if self._use_generate:
                 text = self._to_raw_text(inp)
-                response = self.llama.create_completion(
-                    prompt=text,
-                    max_tokens=self.max_tokens,
-                )
+                create_kwargs = {"prompt": text, "max_tokens": self.max_tokens}
+                if self.temperature is not None:
+                    create_kwargs["temperature"] = self.temperature
+                response = self.llama.create_completion(**create_kwargs)
                 results.append(response["choices"][0]["text"])
             else:
                 messages = self._to_messages(inp)
-                response = self.llama.create_chat_completion(
-                    messages=messages,
-                    max_tokens=self.max_tokens,
-                )
+                create_kwargs = {"messages": messages, "max_tokens": self.max_tokens}
+                if self.temperature is not None:
+                    create_kwargs["temperature"] = self.temperature
+                response = self.llama.create_chat_completion(**create_kwargs)
                 results.append(response["choices"][0]["message"]["content"])
         return results
+
+    def set_temperature(self, temperature: float | None) -> None:
+        self.temperature = None if temperature is None else float(temperature)
 
 
 class ChatVLLM(BaseLocalModel):
@@ -277,12 +290,18 @@ class ChatVLLM(BaseLocalModel):
           falls back to ``llm.generate()`` and emits a warning.  This avoids the
           ``ValueError`` raised by ``transformers >= v4.44`` which removed the
           default chat template.
+
+    Sampling defaults:
+        - Uses ``temperature=0.6`` and ``top_p=0.95`` unless explicitly
+          overridden.
     """
 
     def __init__(
         self,
         model: str,
         max_tokens: int = 8192,
+        temperature: float = 0.6,
+        top_p: float = 0.95,
         chat_template: str | None = None,
         **vllm_kwargs,
     ):
@@ -315,10 +334,13 @@ class ChatVLLM(BaseLocalModel):
                 )
 
         self.llm = LLM(model=model, trust_remote_code=True, **vllm_kwargs)
-        self.sampling_params = SamplingParams(
+        self._SamplingParams = SamplingParams
+        self._temperature = temperature
+        self._top_p = top_p
+        self.sampling_params = self._SamplingParams(
             max_tokens=max_tokens,
-            temperature=0.6,
-            top_p=0.95,
+            temperature=self._temperature,
+            top_p=self._top_p,
         )
 
         # Resolve chat template:
@@ -344,6 +366,14 @@ class ChatVLLM(BaseLocalModel):
                 self._use_generate = False
                 print(f"ChatVLLM: using tokenizer's chat template for '{model}'")
 
+    def set_temperature(self, temperature: float) -> None:
+        self._temperature = float(temperature)
+        self.sampling_params = self._SamplingParams(
+            max_tokens=self.max_tokens,
+            temperature=self._temperature,
+            top_p=self._top_p,
+        )
+
     def batch(self, inputs: list, **invoke_kwargs) -> list[str]:
         """Process a batch of inputs using vllm.LLM.chat() or llm.generate().
 
@@ -364,13 +394,20 @@ class ChatVLLM(BaseLocalModel):
         return [out.outputs[0].text for out in outputs]
 
 
-def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
+def make_model(
+    model: str,
+    max_tokens: int | None = 8192,
+    temperature: float | None = None,
+    **kwargs,
+):
     """Instantiate a model wrapper from a provider/model-name string.
 
     Args:
         model: Format ``{Provider}/{model_path}``, e.g.
             ``VLLM/meta-llama/Llama-3.3-70B-Instruct``.
         max_tokens: Maximum tokens the model may generate.
+        temperature: Optional generation temperature override. ``None`` keeps
+            each provider wrapper's default temperature behavior.
         **kwargs: Provider-specific options forwarded to the model wrapper.
             For VLLM these include ``max_model_len``, ``chat_template``, and
             any other ``vllm.LLM`` constructor arguments.
@@ -390,6 +427,7 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
         return ChatVLLM(
             model=model_name,
             max_tokens=max_tokens if max_tokens else 8192,
+            temperature=temperature if temperature is not None else 0.6,
             chat_template=chat_template,
             **vllm_kwargs,
         )
@@ -397,6 +435,8 @@ def make_model(model: str, max_tokens: int | None = 8192, **kwargs):
     model_kwargs = {}
     if max_tokens is not None:
         model_kwargs["max_tokens"] = max_tokens
+    if temperature is not None:
+        model_kwargs["temperature"] = temperature
 
     if model_provider == "OpenRouter":
         # Special case we need to override API url and key
