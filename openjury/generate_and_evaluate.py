@@ -949,9 +949,6 @@ def _run_mt_bench_openjury(
     preference_parts: list[pd.Series] = []
     combined_metadata: list[dict[str, object]] = []
 
-    if args.swap_mode == "both":
-        print("Running reversed evaluation for position bias correction.")
-
     if instructions_turn_1:
         (
             annotations_turn_1,
