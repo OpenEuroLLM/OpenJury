@@ -212,9 +212,6 @@ def _compact_results(results: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"value": payload}
 
-    payload.pop("date", None)
-    payload.pop("user", None)
-
     if "preferences" in payload:
         prefs = payload.pop("preferences")
         count = len(prefs) if hasattr(prefs, "__len__") else None
