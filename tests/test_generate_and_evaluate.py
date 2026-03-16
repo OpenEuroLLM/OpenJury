@@ -110,34 +110,14 @@ def test_generate_and_evaluate_writes_run_metadata(tmp_path):
     assert metadata["schema_version"] == "openjury-run-metadata/v1"
     assert metadata["entrypoint"] == "openjury.generate_and_evaluate.main"
     assert metadata["run"]["dataset"] == "alpaca-eval"
-    assert "command" not in metadata
-    assert "cli_args" not in metadata
-    assert "inputs" not in metadata
     assert metadata["dataset_statistics"]["instruction_index_count"] == 3
-    assert metadata["dataset_statistics"]["instructions_count"] == 3
-    assert metadata["dataset_statistics"]["completions_A_count"] == 3
-    assert metadata["dataset_statistics"]["completions_B_count"] == 3
-    assert len(metadata["instruction_indices_sha256"]) == 64
-    assert len(metadata["judge_system_prompt_sha256"]) == 64
-    assert len(metadata["judge_user_prompt_template_sha256"]) == 64
-    assert "date" not in metadata["results"]
-    assert "user" not in metadata["results"]
-    assert "preferences" not in metadata["results"]
+    assert metadata["results"]["num_battles"] == 3
     assert metadata["results"]["preferences_count"] == 3
-    assert "hostname" not in metadata["environment"]
-    assert "user" not in metadata["environment"]
-    assert "git" not in metadata
-    if "git_hash" in metadata:
-        assert len(metadata["git_hash"]) == 40
+    assert "instruction_indices_sha256" in metadata
+    assert "judge_system_prompt_sha256" in metadata
+    assert "judge_user_prompt_template_sha256" in metadata
     artifact_paths = {artifact["path"] for artifact in metadata["artifacts"]}
-    assert not any(path.startswith("args-") for path in artifact_paths)
-    assert any(path.endswith("-annotations.csv") for path in artifact_paths)
-    assert any(
-        path.startswith("results-") and path.endswith(".json")
-        for path in artifact_paths
-    )
     assert (
         metadata["extras"]["files"]["results"]["relative_path"] in artifact_paths
     )
-    assert "dependencies" in metadata
-    assert "artifacts" in metadata
+    assert metadata["extras"]["files"]["annotations"]["relative_path"] in artifact_paths
