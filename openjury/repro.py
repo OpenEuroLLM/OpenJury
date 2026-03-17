@@ -218,38 +218,6 @@ def _compact_results(results: dict[str, Any] | None) -> dict[str, Any]:
         payload["preferences_count"] = count
     return payload
 
-
-def _normalize_extras(
-    output_dir: Path, extras: dict[str, Any] | None
-) -> dict[str, Any] | None:
-    if not extras:
-        return None
-
-    normalized = _to_jsonable(extras)
-    if not isinstance(normalized, dict):
-        return {"value": normalized}
-
-    files = normalized.get("files")
-    if isinstance(files, dict):
-        normalized_files: dict[str, Any] = {}
-        for name, raw_path in files.items():
-            path = Path(str(raw_path))
-            if path.is_absolute():
-                try:
-                    relative_path = path.relative_to(output_dir)
-                except ValueError:
-                    normalized_files[str(name)] = {"path": str(path)}
-                else:
-                    normalized_files[str(name)] = {
-                        "relative_path": str(relative_path)
-                    }
-            else:
-                normalized_files[str(name)] = {"relative_path": str(path)}
-        normalized["files"] = normalized_files
-
-    return normalized
-
-
 def write_run_metadata(
     *,
     output_dir: str | Path,
@@ -257,7 +225,6 @@ def write_run_metadata(
     run: dict[str, Any],
     results: dict[str, Any] | None = None,
     input_payloads: dict[str, Any] | None = None,
-    extras: dict[str, Any] | None = None,
     judge_system_prompt: str | None = None,
     judge_user_prompt_template: str | None = None,
     started_at_utc: datetime | None = None,
@@ -314,10 +281,6 @@ def write_run_metadata(
         metadata["judge_user_prompt_template_sha256"] = (
             judge_user_prompt_template_hash
         )
-
-    normalized_extras = _normalize_extras(output_path, extras)
-    if normalized_extras:
-        metadata["extras"] = normalized_extras
 
     metadata["artifacts"] = _collect_artifacts(
         output_path, metadata_filename=metadata_filename

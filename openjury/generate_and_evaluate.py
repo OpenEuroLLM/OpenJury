@@ -5,7 +5,7 @@ and then evaluates them using a judge model.
 
 import argparse
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
@@ -491,31 +491,16 @@ def main(args: CliArgs):
     with open(res_folder / f"results-{name}.json", "w") as f:
         json.dump(_to_jsonable(results), f, indent=2, allow_nan=False)
 
-    try:
-        eval_instruction_index = instructions.head(n_instructions).index.tolist()
-        eval_instructions = instructions.head(n_instructions).tolist()
-        eval_completions_A = completions_A.head(n_instructions).tolist()
-        eval_completions_B = completions_B.head(n_instructions).tolist()
+    eval_instruction_index = instructions.head(n_instructions).index.tolist()
+    eval_instructions = instructions.head(n_instructions).tolist()
+    eval_completions_A = completions_A.head(n_instructions).tolist()
+    eval_completions_B = completions_B.head(n_instructions).tolist()
 
+    try:
         write_run_metadata(
             output_dir=res_folder,
             entrypoint="openjury.generate_and_evaluate.main",
-            run={
-                "dataset": args.dataset,
-                "model_A": args.model_A,
-                "model_B": args.model_B,
-                "judge_model": args.judge_model,
-                "provide_explanation": args.provide_explanation,
-                "swap_mode": args.swap_mode,
-                "n_instructions": n_instructions,
-                "ignore_cache": args.ignore_cache,
-                "use_tqdm": args.use_tqdm,
-                "truncate_all_input_chars": args.truncate_all_input_chars,
-                "max_out_tokens_models": args.max_out_tokens_models,
-                "max_out_tokens_judge": args.max_out_tokens_judge,
-                "max_model_len": args.max_model_len,
-                "chat_template": args.chat_template,
-            },
+            run=asdict(args),
             results=results,
             input_payloads={
                 "instruction_index": eval_instruction_index,
@@ -523,17 +508,11 @@ def main(args: CliArgs):
                 "completions_A": eval_completions_A,
                 "completions_B": eval_completions_B,
             },
-            extras={
-                "files": {
-                    "annotations": f"{name}-annotations.csv",
-                    "results": f"results-{name}.json",
-                }
-            },
             judge_system_prompt=effective_judge_system_prompt,
             judge_user_prompt_template=judge_user_prompt_template,
             started_at_utc=run_started_at,
         )
-    except Exception as e:
+    except OSError as e:
         print(f"Warning: failed to write run metadata: {e}")
 
     return prefs

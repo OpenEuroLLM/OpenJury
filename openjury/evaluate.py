@@ -223,17 +223,11 @@ def evaluate_completions(
                 "completions_A": completions_A.loc[instructions.index].tolist(),
                 "completions_B": completions_B.loc[instructions.index].tolist(),
             },
-            extras={
-                "files": {
-                    "annotations": "annotations.csv",
-                    "results": "results.json",
-                }
-            },
             judge_system_prompt=judge_system_prompt,
             judge_user_prompt_template=judge_user_prompt_template,
             started_at_utc=run_started_at,
         )
-    except Exception as e:
+    except OSError as e:
         print(f"Warning: failed to write run metadata: {e}")
 
 

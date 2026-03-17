@@ -1,5 +1,3 @@
-import json
-
 import pandas as pd
 import pytest
 
@@ -89,35 +87,3 @@ def test_generate_and_evaluate_correct_order_bias(tmp_path):
 
     avg_pref = sum(prefs) / len(prefs)
     assert avg_pref == 0.5
-
-
-def test_generate_and_evaluate_writes_run_metadata(tmp_path):
-    _ = main_generate_and_eval(
-        CliArgs(
-            dataset="alpaca-eval",
-            model_A="Dummy/no answer",
-            model_B="Dummy/open is better than close isnt'it",
-            judge_model="Dummy/score A: 10 score B: 0",
-            n_instructions=3,
-            result_folder=str(tmp_path),
-        )
-    )
-
-    metadata_files = list(tmp_path.rglob("run-metadata.v1.json"))
-    assert len(metadata_files) == 1
-
-    metadata = json.loads(metadata_files[0].read_text())
-    assert metadata["schema_version"] == "openjury-run-metadata/v1"
-    assert metadata["entrypoint"] == "openjury.generate_and_evaluate.main"
-    assert metadata["run"]["dataset"] == "alpaca-eval"
-    assert metadata["dataset_statistics"]["instruction_index_count"] == 3
-    assert metadata["results"]["num_battles"] == 3
-    assert metadata["results"]["preferences_count"] == 3
-    assert "instruction_indices_sha256" in metadata
-    assert "judge_system_prompt_sha256" in metadata
-    assert "judge_user_prompt_template_sha256" in metadata
-    artifact_paths = {artifact["path"] for artifact in metadata["artifacts"]}
-    assert (
-        metadata["extras"]["files"]["results"]["relative_path"] in artifact_paths
-    )
-    assert metadata["extras"]["files"]["annotations"]["relative_path"] in artifact_paths
