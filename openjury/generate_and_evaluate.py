@@ -6,7 +6,7 @@ and then evaluates them using a judge model.
 import argparse
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -20,18 +20,15 @@ from openjury.evaluate import (
 )
 from openjury.generate import generate_instructions, generate_base, generate_multiturn
 from openjury.instruction_dataset import load_instructions
-from openjury.mt_bench.common import iter_mt_bench_pairwise_rows
+from openjury.mt_bench.pipeline import (
+    format_mt_bench_for_evaluation,
+    run_mt_bench,
+)
 from openjury.mt_bench.fastchat_compat import (
     FASTCHAT_TEMPERATURE_CONFIG,
     judge_mt_bench_pairwise_fastchat,
 )
-from openjury.mt_bench_101.evaluate import (
-    derive_mt_bench_101_pairwise_preferences,
-    judge_mt_bench_101_single,
-    summarize_mt_bench_101_absolute_scores,
-    summarize_mt_bench_101_pairwise,
-)
-from openjury.mt_bench_101.generate import generate_mt_bench_101_completions
+from openjury.mt_bench_101.pipeline import run_mt_bench_101
 from openjury.utils import (
     cache_function_dataframe,
     data_root,
@@ -39,8 +36,6 @@ from openjury.utils import (
     make_model,
     read_df,
 )
-
-NEED_REF_CATS = {"math", "reasoning", "coding"}
 
 
 def try_load_dataset_completions(
@@ -99,8 +94,8 @@ class CliArgs:
     chat_template: str | None = None
     mt_bench_turns: str = "both"
     mt_bench_compatibility: str = "openjury"
-
     result_folder: str = "results"
+    engine_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self):
         supported_modes = ["fixed", "both"]
@@ -189,7 +184,7 @@ class CliArgs:
             required=False,
             default=8192,
             help="Character-level truncation applied before tokenization: truncates each instruction "
-            "before model A/B generation and truncates each completion before judge evaluation.",   
+            "before model A/B generation and truncates each completion before judge evaluation.",
         )
         parser.add_argument(
             "--max_out_tokens_models",
@@ -255,7 +250,26 @@ class CliArgs:
                 "conservative position-bias handling, judge temperature=0, and MT-Bench category temperatures."
             ),
         )
+        parser.add_argument(
+            "--engine_kwargs",
+            type=str,
+            required=False,
+            default="{}",
+            help=(
+                "JSON dict of engine-specific kwargs forwarded to the underlying engine. "
+                "Example for vLLM: '{\"tensor_parallel_size\": 2, \"gpu_memory_utilization\": 0.9}'."
+            ),
+        )
         args = parser.parse_args()
+
+        try:
+            engine_kwargs = (
+                json.loads(args.engine_kwargs) if args.engine_kwargs else {}
+            )
+            if not isinstance(engine_kwargs, dict):
+                raise ValueError("engine_kwargs must be a JSON object")
+        except Exception as e:
+            raise SystemExit(f"Failed to parse --engine_kwargs: {e}")
 
         return cls(
             dataset=args.dataset,
@@ -275,6 +289,7 @@ class CliArgs:
             mt_bench_turns=args.mt_bench_turns,
             mt_bench_compatibility=args.mt_bench_compatibility,
             result_folder=args.result_folder,
+            engine_kwargs=engine_kwargs,
         )
 
 
@@ -324,139 +339,6 @@ def print_results(results):
                 f"(W:{stats['num_wins']} L:{stats['num_losses']} T:{stats['num_ties']})"
             )
     print("=" * 60 + "\n")
-
-
-def format_mt_bench_for_evaluation(
-    questions: pd.DataFrame,
-    completions_A: pd.DataFrame,
-    completions_B: pd.DataFrame,
-    turns_mode: str,
-    truncate_input_chars: int | None,
-) -> tuple[
-    tuple[list[str], list[str], list[str], list[dict[str, object]]],
-    tuple[list[str], list[str], list[str], list[dict[str, object]]],
-]:
-    """Flatten MT-Bench into per-turn instruction/completion battle inputs."""
-    assert turns_mode in ("both", "single", "multi")
-    eval_single = turns_mode in ("both", "single")
-    eval_multi = turns_mode in ("both", "multi")
-
-    instructions_turn_1: list[str] = []
-    completions_a_turn_1: list[str] = []
-    completions_b_turn_1: list[str] = []
-    metadata_turn_1: list[dict[str, object]] = []
-
-    instructions_turn_2: list[str] = []
-    completions_a_turn_2: list[str] = []
-    completions_b_turn_2: list[str] = []
-    metadata_turn_2: list[dict[str, object]] = []
-
-    for row in iter_mt_bench_pairwise_rows(
-        questions=questions,
-        completions_a=completions_A,
-        completions_b=completions_B,
-        truncate_input_chars=truncate_input_chars,
-    ):
-        needs_ref = row.category in NEED_REF_CATS
-        if eval_single:
-            if needs_ref and row.ref_1:
-                instruction = (
-                    "[MT-Bench | Turn 1]\n"
-                    "Use the reference answer for correctness checks.\n\n"
-                    f"[Question]\n{row.turn_1_question}\n\n"
-                    f"[Reference Answer]\n{row.ref_1}"
-                )
-            else:
-                instruction = row.turn_1_question
-
-            instructions_turn_1.append(instruction)
-            completions_a_turn_1.append(row.answer_a_1)
-            completions_b_turn_1.append(row.answer_b_1)
-            metadata_turn_1.append(
-                {
-                    "question_id": row.question_id,
-                    "category": row.category,
-                    "turn": 1,
-                }
-            )
-
-        if eval_multi and row.turn_2_question:
-            instruction_parts = [
-                "Please focus on which assistant provides a better answer to the second user question."
-            ]
-            if needs_ref and (row.ref_1 or row.ref_2):
-                instruction_parts.extend(
-                    [
-                        "<|The Start of Reference Answer|>",
-                        "### User:",
-                        row.turn_1_question,
-                        "### Reference answer:",
-                        row.ref_1,
-                        "### User:",
-                        row.turn_2_question,
-                        "### Reference answer:",
-                        row.ref_2,
-                        "<|The End of Reference Answer|>",
-                    ]
-                )
-
-            conversation_a = _format_mt_bench_multiturn_conversation(
-                turn_1_question=row.turn_1_question,
-                turn_1_answer=row.answer_a_1,
-                turn_2_question=row.turn_2_question,
-                turn_2_answer=row.answer_a_2,
-            )
-            conversation_b = _format_mt_bench_multiturn_conversation(
-                turn_1_question=row.turn_1_question,
-                turn_1_answer=row.answer_b_1,
-                turn_2_question=row.turn_2_question,
-                turn_2_answer=row.answer_b_2,
-            )
-
-            instructions_turn_2.append("\n\n".join(instruction_parts))
-            completions_a_turn_2.append(conversation_a)
-            completions_b_turn_2.append(conversation_b)
-            metadata_turn_2.append(
-                {
-                    "question_id": row.question_id,
-                    "category": row.category,
-                    "turn": 2,
-                }
-            )
-
-    return (
-        (
-            instructions_turn_1,
-            completions_a_turn_1,
-            completions_b_turn_1,
-            metadata_turn_1,
-        ),
-        (
-            instructions_turn_2,
-            completions_a_turn_2,
-            completions_b_turn_2,
-            metadata_turn_2,
-        ),
-    )
-
-
-def _format_mt_bench_multiturn_conversation(
-    *,
-    turn_1_question: str,
-    turn_1_answer: str,
-    turn_2_question: str,
-    turn_2_answer: str,
-) -> str:
-    return (
-        "### User:\n"
-        f"{turn_1_question}\n\n"
-        "### Assistant:\n"
-        f"{turn_1_answer}\n\n"
-        "### User:\n"
-        f"{turn_2_question}\n\n"
-        "### Assistant:\n"
-        f"{turn_2_answer}"
-    )
 
 
 def compute_preference_stats(prefs: pd.Series) -> dict:
@@ -608,9 +490,9 @@ def main(args: CliArgs):
 
     # MT-Bench has its own pipeline: multi-turn generation + category-aware judging
     if args.dataset == "mt-bench":
-        return _run_mt_bench(args, ignore_cache)
+        return run_mt_bench(args, ignore_cache)
     if args.dataset == "mt-bench-101":
-        return _run_mt_bench_101(args, ignore_cache)
+        return run_mt_bench_101(args, ignore_cache)
 
     # Currrently, we run context evaluation
     is_fluency_task = "fluency" in args.dataset
@@ -635,9 +517,25 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len, chat_template=args.chat_template)
+        partial(
+            generate_base,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template, max_model_len=args.max_model_len)
+        else partial(
+            generate_instructions,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
@@ -685,6 +583,7 @@ def main(args: CliArgs):
         max_tokens=args.max_out_tokens_judge,
         max_model_len=args.max_model_len,
         chat_template=args.chat_template,
+        **args.engine_kwargs,
     )
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
@@ -819,46 +718,9 @@ def _generate_mt_bench_completions(
     return completions_a, completions_b
 
 
-def _generate_mt_bench_101_completions(
-    args: CliArgs,
-    eval_items_df: pd.DataFrame,
-    ignore_cache: bool,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    def _run_generation(model_name: str) -> pd.DataFrame:
-        return generate_mt_bench_101_completions(
-            eval_items=eval_items_df,
-            model=model_name,
-            truncate_input_chars=args.truncate_all_input_chars,
-            max_tokens=args.max_out_tokens_models,
-            use_tqdm=args.use_tqdm,
-            max_model_len=args.max_model_len,
-            chat_template=args.chat_template,
-        )
-
-    completions_a = cache_function_dataframe(
-        lambda: _run_generation(args.model_A),
-        ignore_cache=ignore_cache,
-        cache_name=f"mt-bench-101_{args.model_A}_{args.n_instructions}",
-    ).set_index("instruction_index")
-
-    completions_b = cache_function_dataframe(
-        lambda: _run_generation(args.model_B),
-        ignore_cache=ignore_cache,
-        cache_name=f"mt-bench-101_{args.model_B}_{args.n_instructions}",
-    ).set_index("instruction_index")
-    return completions_a, completions_b
-
-
 def _build_mt_bench_result_name(args: CliArgs, suffix: str | None = None) -> str:
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
     name += f"-{args.swap_mode}"
-    if suffix:
-        name += f"-{suffix}"
-    return name.replace("/", "_")
-
-
-def _build_mt_bench_101_result_name(args: CliArgs, suffix: str | None = None) -> str:
-    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
     if suffix:
         name += f"-{suffix}"
     return name.replace("/", "_")
@@ -1091,124 +953,6 @@ def _run_mt_bench_openjury(
         annotations_df=df,
     )
     return prefs
-
-
-def _run_mt_bench_101(args: CliArgs, ignore_cache: bool) -> pd.Series:
-    """MT-Bench-101 pipeline with paper-faithful single-answer grading."""
-    if args.mt_bench_compatibility or args.mt_bench_turns:
-        print(
-            "MT-Bench-101 is a different benchmark from original MT-Bench. "
-            "--mt_bench_turns and --mt_bench_compatibility have no effect for this dataset, "
-        )
-    if args.swap_mode:
-        print(
-            "--swap_mode has no effect for mt-bench-101 since it does single answer grading before comparing the models"
-        )
-
-    eval_items_df = load_instructions(
-        "mt-bench-101", n_instructions=args.n_instructions
-    )
-    print(
-        "Generating completions from golden context for MT-Bench-101 with "
-        f"{args.model_A} and {args.model_B}."
-    )
-    completions_a, completions_b = _generate_mt_bench_101_completions(
-        args=args,
-        eval_items_df=eval_items_df,
-        ignore_cache=ignore_cache,
-    )
-
-    judge_chat_model = make_model(
-        model=args.judge_model,
-        max_tokens=args.max_out_tokens_judge,
-        temperature=0.6,
-        max_model_len=args.max_model_len,
-        chat_template=args.chat_template,
-    )
-    scored_a = judge_mt_bench_101_single(
-        judge_chat_model=judge_chat_model,
-        eval_items=eval_items_df,
-        completions=completions_a,
-        truncate_input_chars=args.truncate_all_input_chars,
-        use_tqdm=args.use_tqdm,
-    )
-    scored_b = judge_mt_bench_101_single(
-        judge_chat_model=judge_chat_model,
-        eval_items=eval_items_df,
-        completions=completions_b,
-        truncate_input_chars=args.truncate_all_input_chars,
-        use_tqdm=args.use_tqdm,
-    )
-
-    absolute_a = summarize_mt_bench_101_absolute_scores(scored_turns=scored_a)
-    absolute_b = summarize_mt_bench_101_absolute_scores(scored_turns=scored_b)
-    pairwise_turns = derive_mt_bench_101_pairwise_preferences(
-        scored_a=scored_a,
-        scored_b=scored_b,
-    )
-    pairwise_summary = summarize_mt_bench_101_pairwise(pairwise_turns=pairwise_turns)
-    dialogue_pairwise = pairwise_summary["dialogue_level"]
-
-    print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
-    print(
-        "MT-Bench-101 dialogue-level pairwise winrate(A): "
-        f"{dialogue_pairwise['winrate']:.1%}"
-    )
-
-    ann_cols = [
-        "instruction_index",
-        "dialogue_uid",
-        "dialogue_id",
-        "task",
-        "ability",
-        "turn_index",
-        "model_completion",
-        "judge_completion",
-        "score",
-    ]
-    annotations_a = scored_a.loc[:, ann_cols].copy()
-    annotations_a["evaluated_model"] = args.model_A
-    annotations_b = scored_b.loc[:, ann_cols].copy()
-    annotations_b["evaluated_model"] = args.model_B
-    annotations_df = pd.concat([annotations_a, annotations_b], ignore_index=True)
-    annotations_df = annotations_df.merge(
-        pairwise_turns.loc[
-            :, ["instruction_index", "score_A", "score_B", "preference"]
-        ],
-        on="instruction_index",
-        how="left",
-        validate="many_to_one",
-    )
-
-    results = {
-        "dataset": args.dataset,
-        "model_A": args.model_A,
-        "model_B": args.model_B,
-        "judge_model": args.judge_model,
-        "judge_temperature": 0.6,
-        "evaluation_mode": "single_answer_grading",
-        "num_battles": dialogue_pairwise["num_battles"],
-        "winrate": dialogue_pairwise["winrate"],
-        "num_wins": dialogue_pairwise["num_wins"],
-        "num_losses": dialogue_pairwise["num_losses"],
-        "num_ties": dialogue_pairwise["num_ties"],
-        "num_missing": dialogue_pairwise["num_missing"],
-        "per_category": dialogue_pairwise["per_task"],
-        "model_A_scores": absolute_a,
-        "model_B_scores": absolute_b,
-        "pairwise": pairwise_summary,
-        "preferences": pairwise_summary["preferences"],
-        "date": str(datetime.now().isoformat()),
-        "user": os.getenv("USER", ""),
-    }
-
-    _save_mt_bench_results(
-        args=args,
-        results=results,
-        annotations_df=annotations_df,
-        result_name=_build_mt_bench_101_result_name(args, suffix="mtbench_101"),
-    )
-    return pd.Series(pairwise_summary["preferences"])
 
 
 def _run_mt_bench(args: CliArgs, ignore_cache: bool):

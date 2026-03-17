@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 import openjury.generate_and_evaluate as generate_and_evaluate
+import openjury.mt_bench.pipeline as mt_bench_pipeline
 from openjury.generate_and_evaluate import (
     main as main_generate_and_eval,
     CliArgs,
@@ -80,6 +81,11 @@ def mock_external_data_and_cache(monkeypatch):
         _load_instructions,
     )
     monkeypatch.setattr(
+        mt_bench_pipeline,
+        "load_instructions",
+        _load_instructions,
+    )
+    monkeypatch.setattr(
         generate_and_evaluate,
         "load_contexts",
         lambda dataset: single_turn_instructions.loc[:, "instruction"],
@@ -96,6 +102,9 @@ def mock_external_data_and_cache(monkeypatch):
 
     monkeypatch.setattr(
         generate_and_evaluate, "cache_function_dataframe", _run_without_cache
+    )
+    monkeypatch.setattr(
+        mt_bench_pipeline, "cache_function_dataframe", _run_without_cache
     )
 
 

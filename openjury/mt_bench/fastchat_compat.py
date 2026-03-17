@@ -21,11 +21,9 @@ FASTCHAT_TEMPERATURE_CONFIG: dict[str, float] = {
     "reasoning": 0.0,
     "stem": 0.1,
     "humanities": 0.1,
-    "arena-hard-200": 0.0,
 }
 
-# "arena-hard-200" is a FastChat-internal category label, not OpenJury's arena-hard dataset.
-FASTCHAT_NEED_REF_CATS: set[str] = {"math", "reasoning", "coding", "arena-hard-200"}
+FASTCHAT_NEED_REF_CATS: set[str] = {"math", "reasoning", "coding"}
 
 FastChatVerdict = Literal["A", "B", "tie", "error"]
 PairwiseWinner = Literal["model_A", "model_B", "tie", "error"]

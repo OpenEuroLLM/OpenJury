@@ -8,6 +8,10 @@ from openjury.utils import do_inference, make_model, truncate
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
 
+def _escape_template_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 def _build_golden_context_input(
     *,
     system_prompt: str,
@@ -15,18 +19,32 @@ def _build_golden_context_input(
     user_message: str,
     truncate_input_chars: int | None,
 ):
-    messages: list[tuple[str, str]] = [("system", system_prompt)]
+    messages: list[tuple[str, str]] = [("system", _escape_template_braces(system_prompt))]
     for turn in golden_context:
         messages.append(
-            ("user", truncate(str(turn.get("user") or ""), max_len=truncate_input_chars))
+            (
+                "user",
+                _escape_template_braces(
+                    truncate(str(turn.get("user") or ""), max_len=truncate_input_chars)
+                ),
+            )
         )
         messages.append(
             (
                 "assistant",
-                truncate(str(turn.get("bot") or ""), max_len=truncate_input_chars),
+                _escape_template_braces(
+                    truncate(str(turn.get("bot") or ""), max_len=truncate_input_chars)
+                ),
             )
         )
-    messages.append(("user", truncate(user_message, max_len=truncate_input_chars)))
+    messages.append(
+        (
+            "user",
+            _escape_template_braces(
+                truncate(user_message, max_len=truncate_input_chars)
+            ),
+        )
+    )
     return ChatPromptTemplate.from_messages(messages).invoke({})
 
 

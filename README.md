@@ -82,6 +82,25 @@ The evaluation scripts expose four different length controls with different role
 - `--max_out_tokens_judge`: generation token budget for the judge completion (reasoning + score output).
 - `--max_model_len`: optional vLLM context-window limit (prompt + generated tokens), applied to vLLM models; this should be greater than or equal to the two `max_out_tokens_*` values.
 
+### Engine-Specific Configuration (`--engine_kwargs`)
+
+Some providers expose additional engine-level knobs (for example, vLLM allows configuring tensor parallelism or GPU memory utilization).  
+OpenJury lets you forward these options directly to the underlying engine via `--engine_kwargs`, which expects a JSON object.
+
+For instance, to run vLLM with tensor parallelism across multiple GPUs:
+
+```bash
+python openjury/generate_and_evaluate.py \
+  --dataset alpaca-eval \
+  --model_A VLLM/Qwen/Qwen2.5-0.5B-Instruct \
+  --model_B VLLM/Qwen/Qwen2.5-1.5B-Instruct \
+  --judge_model VLLM/Qwen/Qwen3.5-27B-FP8 \
+  --n_instructions 10 \
+  --engine_kwargs '{"tensor_parallel_size": 2}'
+```
+
+While any key in `--engine_kwargs` is forwarded to the underlying engine (e.g. `vllm.LLM`, `LlamaCpp`, `ChatOpenAI`), existing dedicated flags such as `--max_model_len` and `--chat_template` have higher precedence.
+
 ## 🎨 Model Specification
 
 Models are specified using the format: `{LangChain Backend}/{Model Path}`
