@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from openjury.evaluate import PairScore, load_judge_system_and_user_prompt
+from openjury.eval_runtime import (
+    _compute_grouped_stats,
+    _judge_turn,
+    compute_preference_stats,
+    print_results,
+)
 from openjury.generate import generate_multiturn
 from openjury.instruction_dataset import load_instructions
 from openjury.mt_bench.common import iter_mt_bench_pairwise_rows
@@ -245,12 +251,6 @@ def _run_mt_bench_fastchat(
     completions_b: pd.DataFrame,
     judge_chat_model,
 ) -> pd.Series:
-    from openjury.generate_and_evaluate import (
-        _compute_grouped_stats,
-        compute_preference_stats,
-        print_results,
-    )
-
     prefs, annotations, combined_metadata, num_inconsistent = (
         judge_mt_bench_pairwise_fastchat(
             judge_chat_model=judge_chat_model,
@@ -300,13 +300,6 @@ def _run_mt_bench_openjury(
     completions_b: pd.DataFrame,
     judge_chat_model,
 ) -> pd.Series:
-    from openjury.generate_and_evaluate import (
-        _compute_grouped_stats,
-        _judge_turn,
-        compute_preference_stats,
-        print_results,
-    )
-
     turn_1_inputs, turn_2_inputs = format_mt_bench_for_evaluation(
         questions=questions_df,
         completions_A=completions_a,
