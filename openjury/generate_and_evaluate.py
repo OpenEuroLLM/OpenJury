@@ -5,18 +5,22 @@ and then evaluates them using a judge model.
 
 import argparse
 import json
-import os
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate_battles, PairScore
+from openjury.evaluate import (
+    annotate_battles,
+    PairScore,
+    resolve_judge_prompts,
+)
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
+from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe, compute_pref_summary
 
@@ -75,8 +79,8 @@ class CliArgs:
     max_out_tokens_judge: int = 32768
     max_model_len: int | None = None
     chat_template: str | None = None
-
     result_folder: str = "results"
+    engine_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self):
         supported_modes = ["fixed", "both"]
@@ -195,7 +199,26 @@ class CliArgs:
             help="Jinja2 chat template string to use instead of the model's tokenizer template. "
             "If not provided, ChatML is used as fallback for models without a chat template.",
         )
+        parser.add_argument(
+            "--engine_kwargs",
+            type=str,
+            required=False,
+            default="{}",
+            help=(
+                "JSON dict of engine-specific kwargs forwarded to the underlying engine. "
+                "Example for vLLM: '{\"tensor_parallel_size\": 2, \"gpu_memory_utilization\": 0.9}'."
+            ),
+        )
         args = parser.parse_args()
+
+        try:
+            engine_kwargs = (
+                json.loads(args.engine_kwargs) if args.engine_kwargs else {}
+            )
+            if not isinstance(engine_kwargs, dict):
+                raise ValueError("engine_kwargs must be a JSON object")
+        except Exception as e:
+            raise SystemExit(f"Failed to parse --engine_kwargs: {e}")
 
         return cls(
             dataset=args.dataset,
@@ -213,6 +236,7 @@ class CliArgs:
             max_model_len=args.max_model_len,
             chat_template=args.chat_template,
             result_folder=args.result_folder,
+            engine_kwargs=engine_kwargs,
         )
 
 
@@ -252,6 +276,7 @@ def main(args: CliArgs):
     3) create annotations
     """
 
+    run_started_at = datetime.now(timezone.utc)
     print(
         f"Using dataset {args.dataset} and evaluating models {args.model_A} and {args.model_B}."
     )
@@ -284,9 +309,25 @@ def main(args: CliArgs):
 
     # TODO currently we just support base models for fluency, we could also support instruction-tuned models
     gen_fun = (
-        partial(generate_base, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, max_model_len=args.max_model_len, chat_template=args.chat_template)
+        partial(
+            generate_base,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
         if is_fluency_task
-        else partial(generate_instructions, truncate_input_chars=args.truncate_all_input_chars, max_tokens=args.max_out_tokens_models, chat_template=args.chat_template, max_model_len=args.max_model_len)
+        else partial(
+            generate_instructions,
+            truncate_input_chars=args.truncate_all_input_chars,
+            max_tokens=args.max_out_tokens_models,
+            max_model_len=args.max_model_len,
+            chat_template=args.chat_template,
+            use_tqdm=args.use_tqdm,
+            **args.engine_kwargs,
+        )
     )
     dataset_completions_A = try_load_dataset_completions(
         args.dataset, args.model_A, n_instructions
@@ -334,6 +375,7 @@ def main(args: CliArgs):
         max_tokens=args.max_out_tokens_judge,
         max_model_len=args.max_model_len,
         chat_template=args.chat_template,
+        **args.engine_kwargs,
     )
 
     name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
@@ -357,13 +399,21 @@ def main(args: CliArgs):
     else:
         # the default system prompt of annotate is to compare instruction tuned models.
         system_prompt = None
+    (
+        effective_judge_system_prompt,
+        judge_user_prompt_template,
+    ) = resolve_judge_prompts(
+        provide_explanation=args.provide_explanation,
+        system_prompt=system_prompt,
+    )
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.head(n_instructions).tolist(),
         completions_A=completions_A.head(n_instructions).tolist(),
         completions_B=completions_B.head(n_instructions).tolist(),
         provide_explanation=args.provide_explanation,
-        system_prompt=system_prompt,
+        system_prompt=effective_judge_system_prompt,
+        user_prompt_template=judge_user_prompt_template,
         truncate_input_chars=args.truncate_all_input_chars,
         use_tqdm=args.use_tqdm,
     )
@@ -379,7 +429,8 @@ def main(args: CliArgs):
             completions_A=completions_B.head(n_instructions).tolist(),
             completions_B=completions_A.head(n_instructions).tolist(),
             provide_explanation=args.provide_explanation,
-            system_prompt=system_prompt,
+            system_prompt=effective_judge_system_prompt,
+            user_prompt_template=judge_user_prompt_template,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
@@ -430,15 +481,36 @@ def main(args: CliArgs):
         "judge_model": args.judge_model,
         **summary,
         "preferences": prefs.tolist(),
-        "date": str(datetime.now().isoformat()),
-        "user": os.getenv("USER", ""),
-        "scoring_mode": "judge_pairwise",
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(_to_jsonable(results), f, indent=2, allow_nan=False)
+
+    eval_instruction_index = instructions.head(n_instructions).index.tolist()
+    eval_instructions = instructions.head(n_instructions).tolist()
+    eval_completions_A = completions_A.head(n_instructions).tolist()
+    eval_completions_B = completions_B.head(n_instructions).tolist()
+
+    try:
+        write_run_metadata(
+            output_dir=res_folder,
+            entrypoint="openjury.generate_and_evaluate.main",
+            run=asdict(args),
+            results=results,
+            input_payloads={
+                "instruction_index": eval_instruction_index,
+                "instructions": eval_instructions,
+                "completions_A": eval_completions_A,
+                "completions_B": eval_completions_B,
+            },
+            judge_system_prompt=effective_judge_system_prompt,
+            judge_user_prompt_template=judge_user_prompt_template,
+            started_at_utc=run_started_at,
+        )
+    except OSError as e:
+        print(f"Warning: failed to write run metadata: {e}")
 
     return prefs
 
