@@ -1,12 +1,8 @@
-import json
-
 import pytest
 
 from openjury.criteria.defaults import CRITERIA_BY_NAME
 from openjury.criteria.io import (
     load_criteria_from_file,
-    load_criteria_from_json,
-    load_criteria_from_yaml,
 )
 from openjury.criteria.schema import SCALE_MAX, SCALE_MIN, Criterion, criterion_names
 
@@ -24,42 +20,7 @@ def test_get_default_criteria():
     ]
 
 
-def test_load_criteria_from_json_requires_criteria_key(tmp_path):
-    path = tmp_path / "missing_criteria.json"
-    path.write_text(
-        json.dumps(
-            {
-                "name": "missing_criteria",
-                "dimensions": [
-                    {"name": "overall", "description": "Overall quality"},
-                ],
-            }
-        )
-    )
-
-    with pytest.raises(KeyError, match="criteria"):
-        load_criteria_from_json(path)
-
-
-def test_load_criteria_from_json_supports_criteria_key(tmp_path):
-    path = tmp_path / "criteria.json"
-    path.write_text(
-        json.dumps(
-            {
-                "name": "criteria_criteria",
-                "criteria": [
-                    {"name": "clarity", "description": "Clarity"},
-                    {"name": "correctness", "description": "Correctness"},
-                ],
-            }
-        )
-    )
-
-    criteria = load_criteria_from_json(path)
-    assert criterion_names(criteria) == ["clarity", "correctness"]
-
-
-def test_load_criteria_from_yaml_supports_criteria_key(tmp_path):
+def test_load_criteria_from_file_supports_yaml(tmp_path):
     path = tmp_path / "criteria.yaml"
     path.write_text(
         """
@@ -72,7 +33,7 @@ criteria:
 """
     )
 
-    criteria = load_criteria_from_yaml(path)
+    criteria = load_criteria_from_file(path)
     assert criterion_names(criteria) == ["clarity", "correctness"]
 
 
