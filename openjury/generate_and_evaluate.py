@@ -5,18 +5,22 @@ and then evaluates them using a judge model.
 
 import argparse
 import json
-import os
-from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from openjury.evaluate import annotate_battles, PairScore
+from openjury.evaluate import (
+    annotate_battles,
+    PairScore,
+    resolve_judge_prompts,
+)
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
+from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import data_root, read_df, download_hf
 from openjury.utils import make_model, cache_function_dataframe
 
@@ -272,6 +276,7 @@ def main(args: CliArgs):
     3) create annotations
     """
 
+    run_started_at = datetime.now(timezone.utc)
     print(
         f"Using dataset {args.dataset} and evaluating models {args.model_A} and {args.model_B}."
     )
@@ -382,6 +387,13 @@ def main(args: CliArgs):
         # the default system prompt of annotate is to compare instruction tuned models.
 
         system_prompt = None
+    (
+        effective_judge_system_prompt,
+        judge_user_prompt_template,
+    ) = resolve_judge_prompts(
+        provide_explanation=args.provide_explanation,
+        system_prompt=system_prompt,
+    )
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.head(n_instructions).tolist(),
@@ -415,10 +427,6 @@ def main(args: CliArgs):
 
     res_folder = Path(args.result_folder) / name
     res_folder.mkdir(parents=True, exist_ok=True)
-
-    # save argument for results analysis
-    with open(res_folder / f"args-{name}.json", "w") as f:
-        json.dump(asdict(args), f, indent=2)
 
     print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
@@ -476,14 +484,36 @@ def main(args: CliArgs):
         "num_ties": num_ties,
         "num_missing": num_battles - (num_losses + num_wins + num_ties),
         "preferences": prefs.tolist(),
-        "date": str(datetime.now().isoformat()),
-        "user": os.getenv("USER", ""),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
     print_results(results)
 
     with open(res_folder / f"results-{name}.json", "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(_to_jsonable(results), f, indent=2, allow_nan=False)
+
+    eval_instruction_index = instructions.head(n_instructions).index.tolist()
+    eval_instructions = instructions.head(n_instructions).tolist()
+    eval_completions_A = completions_A.head(n_instructions).tolist()
+    eval_completions_B = completions_B.head(n_instructions).tolist()
+
+    try:
+        write_run_metadata(
+            output_dir=res_folder,
+            entrypoint="openjury.generate_and_evaluate.main",
+            run=asdict(args),
+            results=results,
+            input_payloads={
+                "instruction_index": eval_instruction_index,
+                "instructions": eval_instructions,
+                "completions_A": eval_completions_A,
+                "completions_B": eval_completions_B,
+            },
+            judge_system_prompt=effective_judge_system_prompt,
+            judge_user_prompt_template=judge_user_prompt_template,
+            started_at_utc=run_started_at,
+        )
+    except OSError as e:
+        print(f"Warning: failed to write run metadata: {e}")
 
     return prefs
 
