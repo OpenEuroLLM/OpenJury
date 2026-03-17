@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +10,9 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
+from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import (
+    compute_pref_summary,
     read_df,
     data_root,
     download_hf,
@@ -77,6 +79,25 @@ def load_judge_system_and_user_prompt(
     return system_prompt, user_prompt_template
 
 
+def resolve_judge_prompts(
+    *,
+    provide_explanation: bool,
+    system_prompt: str | None = None,
+    user_prompt_template: str | None = None,
+) -> tuple[str, str]:
+    default_system_prompt, default_user_prompt_template = (
+        load_judge_system_and_user_prompt(provide_explanation=provide_explanation)
+    )
+    return (
+        system_prompt if system_prompt is not None else default_system_prompt,
+        (
+            user_prompt_template
+            if user_prompt_template is not None
+            else default_user_prompt_template
+        ),
+    )
+
+
 def evaluate_completions(
     dataset: str = "alpaca-eval",
     judge_chat_model: LLM = None,
@@ -100,6 +121,7 @@ def evaluate_completions(
     exceeding context limit
     :return:
     """
+    run_started_at = datetime.now(timezone.utc)
     local_path_tables = data_root / "tables"
     download_hf(name=dataset, local_path=local_path_tables)
 
@@ -150,43 +172,71 @@ def evaluate_completions(
 
         judge_chat_model = Together(model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
+    unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_folder = data_root / "judge-evals" / unique_string
+    print(f"Saving results in {output_folder}")
+    output_folder.mkdir(parents=True, exist_ok=True)
+    (
+        judge_system_prompt,
+        judge_user_prompt_template,
+    ) = resolve_judge_prompts(provide_explanation=provide_explanation)
+
     annotations = annotate_battles(
         judge_chat_model=judge_chat_model,
         instructions=instructions.tolist(),
         completions_A=completions_A.loc[instructions.index].tolist(),
         completions_B=completions_B.loc[instructions.index].tolist(),
+        system_prompt=judge_system_prompt,
+        user_prompt_template=judge_user_prompt_template,
         use_tqdm=use_tqdm,
         truncate_input_chars=truncate_input_chars,
         provide_explanation=provide_explanation,
     )
 
-    # print("--------\n".join([str(x) for x in annotations]))
-    # print results in term of 1) winrate 2) number of win/loss
-    prefs = pd.Series([annotation.preference for annotation in annotations])
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
-
-    results = {
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-    }
+    # Pairwise judge results
+    score_parser = PairScore()
+    prefs = pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
+    results = {**compute_pref_summary(prefs)}
+    pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
 
     print(f"{method_A} against {method_B}:\n{results}")
-    print([annotation.preference for annotation in annotations])
-
-    unique_string = dataset + "-" + datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_folder = data_root / "judge-evals" / unique_string
-    print(f"Saving results in {output_folder}")
-    output_folder.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
     with open(output_folder / "results.json", "w") as f:
-        json.dump(results, f)
+        json.dump(_to_jsonable(results), f, allow_nan=False)
+
+    run_metadata = {
+        "dataset": dataset,
+        "method_A": method_A,
+        "method_B": method_B,
+        "num_annotations": num_annotations,
+        "n_annotations": len(instructions),
+        "use_tqdm": use_tqdm,
+        "truncate_input_chars": truncate_input_chars,
+        "provide_explanation": provide_explanation,
+    }
+
+    try:
+        write_run_metadata(
+            output_dir=output_folder,
+            entrypoint="openjury.evaluate.evaluate_completions",
+            run=run_metadata,
+            results=results,
+            input_payloads={
+                "instruction_index": instructions.index.tolist(),
+                "instructions": instructions.tolist(),
+                "completions_A": completions_A.loc[instructions.index].tolist(),
+                "completions_B": completions_B.loc[instructions.index].tolist(),
+            },
+            judge_system_prompt=judge_system_prompt,
+            judge_user_prompt_template=judge_user_prompt_template,
+            started_at_utc=run_started_at,
+        )
+    except OSError as e:
+        print(f"Warning: failed to write run metadata: {e}")
 
 
 @dataclass
@@ -239,14 +289,11 @@ def annotate_battles(
     # alternatively pass list of tuples
     assert len(instructions) == len(completions_A) == len(completions_B)
 
-    (
-        default_system_prompt,
-        default_user_prompt_template,
-    ) = load_judge_system_and_user_prompt(provide_explanation=provide_explanation)
-    if system_prompt is None:
-        system_prompt = default_system_prompt
-    if user_prompt_template is None:
-        user_prompt_template = default_user_prompt_template
+    system_prompt, user_prompt_template = resolve_judge_prompts(
+        provide_explanation=provide_explanation,
+        system_prompt=system_prompt,
+        user_prompt_template=user_prompt_template,
+    )
 
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]

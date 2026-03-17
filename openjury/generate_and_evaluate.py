@@ -672,7 +672,6 @@ def main(args: CliArgs):
 
     return prefs
 
-
 def _generate_mt_bench_completions(
     args: CliArgs,
     questions_df: pd.DataFrame,

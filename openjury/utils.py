@@ -59,6 +59,26 @@ def safe_text(value: object, truncate_chars: int | None) -> str:
     return truncate(str(value), max_len=truncate_chars)
 
 
+def compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
+    """Compute win/loss/tie stats for preference series (0=A, 0.5=tie, 1=B)."""
+    prefs = pd.Series(prefs, dtype="float64")
+    valid = prefs.dropna()
+    num_wins = int((valid < 0.5).sum())
+    num_losses = int((valid > 0.5).sum())
+    num_ties = int((valid == 0.5).sum())
+    num_battles = int(len(prefs))
+    denom = num_wins + num_losses + num_ties
+    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom > 0 else float("nan")
+    return {
+        "num_battles": num_battles,
+        "winrate": winrate,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+        "num_missing": int(num_battles - denom),
+    }
+
+
 def do_inference(chat_model, inputs, use_tqdm: bool = False):
     # Retries on rate-limit/server errors with exponential backoff.
     # Async path retries individual calls; batch path splits into 4^attempt chunks on failure.
