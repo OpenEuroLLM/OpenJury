@@ -22,7 +22,7 @@ from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
 from openjury.repro import write_run_metadata, _to_jsonable
 from openjury.utils import data_root, read_df, download_hf
-from openjury.utils import make_model, cache_function_dataframe
+from openjury.utils import make_model, cache_function_dataframe, compute_pref_summary
 
 
 def try_load_dataset_completions(
@@ -377,6 +377,19 @@ def main(args: CliArgs):
         chat_template=args.chat_template,
         **args.engine_kwargs,
     )
+
+    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
+    name += f"-{args.swap_mode}"
+    name = name.replace("/", "_")
+
+    res_folder = Path(args.result_folder) / name
+    res_folder.mkdir(parents=True, exist_ok=True)
+
+    # save argument for results analysis
+    with open(res_folder / f"args-{name}.json", "w") as f:
+        json.dump(asdict(args), f, indent=2)
+
+    print(f"Saving results to {res_folder}")
     if is_fluency_task:
         system_prompt = """You are a highly efficient assistant, who evaluates and selects the best large language \
         model based on the quality of completion of a sentence. You will see a sentence to be completed and two \
@@ -385,7 +398,6 @@ def main(args: CliArgs):
         the ordering or on the length of the answers."""
     else:
         # the default system prompt of annotate is to compare instruction tuned models.
-
         system_prompt = None
     (
         effective_judge_system_prompt,
@@ -400,7 +412,8 @@ def main(args: CliArgs):
         completions_A=completions_A.head(n_instructions).tolist(),
         completions_B=completions_B.head(n_instructions).tolist(),
         provide_explanation=args.provide_explanation,
-        system_prompt=system_prompt,
+        system_prompt=effective_judge_system_prompt,
+        user_prompt_template=judge_user_prompt_template,
         truncate_input_chars=args.truncate_all_input_chars,
         use_tqdm=args.use_tqdm,
     )
@@ -416,19 +429,12 @@ def main(args: CliArgs):
             completions_A=completions_B.head(n_instructions).tolist(),
             completions_B=completions_A.head(n_instructions).tolist(),
             provide_explanation=args.provide_explanation,
-            system_prompt=system_prompt,
+            system_prompt=effective_judge_system_prompt,
+            user_prompt_template=judge_user_prompt_template,
             truncate_input_chars=args.truncate_all_input_chars,
             use_tqdm=args.use_tqdm,
         )
 
-    name = f"{args.dataset}-{args.model_A}-{args.model_B}-{args.judge_model}"
-    name += f"-{args.swap_mode}"
-    name = name.replace("/", "_")
-
-    res_folder = Path(args.result_folder) / name
-    res_folder.mkdir(parents=True, exist_ok=True)
-
-    print(f"Saving results to {res_folder}")
     df = pd.DataFrame(annotations)
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
     df["model_A"] = args.model_A
@@ -466,23 +472,14 @@ def main(args: CliArgs):
         prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
-    num_wins = sum(prefs < 0.5)
-    num_losses = sum(prefs > 0.5)
-    num_ties = sum([1 if not x or x == 0.5 or x == np.nan else 0 for x in prefs])
-    num_battles = len(prefs)
-    winrate = float((num_wins + 0.5 * num_ties) / (num_ties + num_wins + num_losses))
+    summary = compute_pref_summary(prefs)
 
     results = {
         "dataset": args.dataset,
         "model_A": args.model_A,
         "model_B": args.model_B,
         "judge_model": args.judge_model,
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": num_battles - (num_losses + num_wins + num_ties),
+        **summary,
         "preferences": prefs.tolist(),
     }
     print(f"{args.model_A} vs {args.model_B} judged by {args.judge_model}")
