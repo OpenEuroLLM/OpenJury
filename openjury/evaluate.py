@@ -202,20 +202,22 @@ def evaluate_completions(
     with open(output_folder / "results.json", "w") as f:
         json.dump(_to_jsonable(results), f, allow_nan=False)
 
+    run_metadata = {
+        "dataset": dataset,
+        "method_A": method_A,
+        "method_B": method_B,
+        "num_annotations": num_annotations,
+        "n_annotations": len(instructions),
+        "use_tqdm": use_tqdm,
+        "truncate_input_chars": truncate_input_chars,
+        "provide_explanation": provide_explanation,
+    }
+
     try:
         write_run_metadata(
             output_dir=output_folder,
             entrypoint="openjury.evaluate.evaluate_completions",
-            run={
-                "dataset": dataset,
-                "method_A": method_A,
-                "method_B": method_B,
-                "num_annotations": num_annotations,
-                "n_annotations": len(instructions),
-                "use_tqdm": use_tqdm,
-                "truncate_input_chars": truncate_input_chars,
-                "provide_explanation": provide_explanation,
-            },
+            run=run_metadata,
             results=results,
             input_payloads={
                 "instruction_index": instructions.index.tolist(),
