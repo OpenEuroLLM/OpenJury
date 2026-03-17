@@ -169,7 +169,6 @@ def evaluate_completions(
     pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)
 
     print(f"{method_A} against {method_B}:\n{results}")
-    print(prefs.tolist())
     with open(output_folder / "results.json", "w") as f:
         json.dump(results, f)
 
