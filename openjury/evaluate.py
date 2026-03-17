@@ -11,6 +11,7 @@ from langchain_core.language_models.llms import LLM
 
 from openjury.instruction_dataset import load_instructions
 from openjury.utils import (
+    compute_pref_summary,
     read_df,
     data_root,
     download_hf,
@@ -63,26 +64,6 @@ def load_judge_system_and_user_prompt(
         user_prompt_template = str(f.read())
 
     return system_prompt, user_prompt_template
-
-
-def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
-    """Compute win/loss/tie stats for preference series (0=A, 0.5=tie, 1=B)."""
-    prefs = pd.Series(prefs, dtype="float64")
-    valid = prefs.dropna()
-    num_wins = int((valid < 0.5).sum())
-    num_losses = int((valid > 0.5).sum())
-    num_ties = int((valid == 0.5).sum())
-    num_battles = int(len(prefs))
-    denom = num_wins + num_losses + num_ties
-    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom > 0 else float("nan")
-    return {
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": int(num_battles - denom),
-    }
 
 
 def evaluate_completions(
@@ -182,7 +163,7 @@ def evaluate_completions(
         ]
     )
     results = {
-        **_compute_pref_summary(prefs),
+        **compute_pref_summary(prefs),
         "scoring_mode": "judge_pairwise",
     }
     pd.DataFrame(annotations).to_csv(output_folder / "annotations.csv", index=False)

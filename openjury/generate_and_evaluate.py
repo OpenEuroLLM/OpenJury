@@ -18,7 +18,7 @@ from openjury.evaluate import annotate_battles, PairScore
 from openjury.generate import generate_instructions, generate_base
 from openjury.instruction_dataset import load_instructions
 from openjury.utils import data_root, read_df, download_hf
-from openjury.utils import make_model, cache_function_dataframe
+from openjury.utils import make_model, cache_function_dataframe, compute_pref_summary
 
 
 def try_load_dataset_completions(
@@ -240,26 +240,6 @@ def print_results(results):
     print("=" * 60 + "\n")
 
 
-def _compute_pref_summary(prefs: pd.Series) -> dict[str, float | int]:
-    """Compute win/loss/tie stats for preference series (0=A, 0.5=tie, 1=B)."""
-    prefs = pd.Series(prefs, dtype="float64")
-    valid = prefs.dropna()
-    num_wins = int((valid < 0.5).sum())
-    num_losses = int((valid > 0.5).sum())
-    num_ties = int((valid == 0.5).sum())
-    num_battles = int(len(prefs))
-    denom = num_wins + num_losses + num_ties
-    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom > 0 else float("nan")
-    return {
-        "num_battles": num_battles,
-        "winrate": winrate,
-        "num_wins": num_wins,
-        "num_losses": num_losses,
-        "num_ties": num_ties,
-        "num_missing": int(num_battles - denom),
-    }
-
-
 def main(args: CliArgs):
     """
     1) take as input:
@@ -441,7 +421,7 @@ def main(args: CliArgs):
         prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
-    summary = _compute_pref_summary(prefs)
+    summary = compute_pref_summary(prefs)
 
     results = {
         "dataset": args.dataset,
