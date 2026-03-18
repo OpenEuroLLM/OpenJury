@@ -3,6 +3,7 @@ import pytest
 
 import openjury.generate_and_evaluate as generate_and_evaluate
 import openjury.mt_bench.pipeline as mt_bench_pipeline
+import openjury.mt_bench_101.pipeline as mt_bench_101_pipeline
 from openjury.generate_and_evaluate import (
     main as main_generate_and_eval,
     CliArgs,
@@ -43,8 +44,36 @@ def mock_external_data_and_cache(monkeypatch):
     )
     mt_bench_questions["instruction"] = mt_bench_questions["turn_1"]
 
+    mt_bench_101_eval_items = pd.DataFrame(
+        {
+            "dialogue_id": [0, 0, 1],
+            "dialogue_uid": ["CM:0", "CM:0", "MR:1"],
+            "task": ["CM", "CM", "MR"],
+            "ability": ["perceptivity", "perceptivity", "adaptability"],
+            "turn_index": [2, 3, 1],
+            "golden_context": [
+                [{"user": "CM user 1", "bot": "CM bot 1"}],
+                [
+                    {"user": "CM user 1", "bot": "CM bot 1"},
+                    {"user": "CM user 2", "bot": "CM bot 2"},
+                ],
+                [],
+            ],
+            "user_message": ["CM user 2", "CM user 3", "MR user 1"],
+            "reference_answer": ["CM ref 2", "CM ref 3", "MR ref 1"],
+            "requires_reference": [False, False, True],
+            "instruction": ["CM user 2", "CM user 3", "MR user 1"],
+        },
+        index=pd.Index(range(3), name="instruction_index"),
+    )
+
     def _load_instructions(dataset: str, n_instructions: int | None = None) -> pd.DataFrame:
-        df = mt_bench_questions if dataset == "mt-bench" else single_turn_instructions
+        if dataset == "mt-bench":
+            df = mt_bench_questions
+        elif dataset == "mt-bench-101":
+            df = mt_bench_101_eval_items
+        else:
+            df = single_turn_instructions
         return df.head(n_instructions) if n_instructions is not None else df
 
     monkeypatch.setattr(
@@ -54,6 +83,11 @@ def mock_external_data_and_cache(monkeypatch):
     )
     monkeypatch.setattr(
         mt_bench_pipeline,
+        "load_instructions",
+        _load_instructions,
+    )
+    monkeypatch.setattr(
+        mt_bench_101_pipeline,
         "load_instructions",
         _load_instructions,
     )
@@ -77,6 +111,9 @@ def mock_external_data_and_cache(monkeypatch):
     )
     monkeypatch.setattr(
         mt_bench_pipeline, "cache_function_dataframe", _run_without_cache
+    )
+    monkeypatch.setattr(
+        mt_bench_101_pipeline, "cache_function_dataframe", _run_without_cache
     )
 
 
@@ -334,3 +371,19 @@ def test_mt_bench_fastchat_conservative_swap_mode(tmp_path):
     # Conservative swap runs both orders, but returns one resolved verdict per match.
     assert len(prefs) == 6  # 3 questions * 2 turns
     assert all(p == pytest.approx(0.5) for p in prefs)
+
+
+def test_mt_bench_101_pipeline(tmp_path):
+    prefs = main_generate_and_eval(
+        CliArgs(
+            dataset="mt-bench-101",
+            model_A="Dummy/model-a-response",
+            model_B="Dummy/model-b-response",
+            judge_model="Dummy/Explanation.\nRating: [[10]]",
+            result_folder=str(tmp_path),
+        )
+    )
+
+    # Both models receive the same constant judge score, so all pairwise prefs are ties.
+    assert len(prefs) == 3
+    assert all(float(pref) == pytest.approx(0.5) for pref in prefs)

@@ -14,15 +14,21 @@ import pandas as pd
 
 from openjury.config import CliArgs
 from openjury.evaluate import (
+    annotate_battles,
     PairScore,
+    load_judge_system_and_user_prompt,
 )
-from openjury.eval_runtime import _judge_turn, compute_preference_stats, print_results
-from openjury.generate import generate_instructions, generate_base
+from openjury.generate import generate_instructions, generate_base, generate_multiturn
 from openjury.instruction_dataset import load_instructions
 from openjury.mt_bench.pipeline import (
     format_mt_bench_for_evaluation,
     run_mt_bench,
 )
+from openjury.mt_bench.fastchat_compat import (
+    FASTCHAT_TEMPERATURE_CONFIG,
+    judge_mt_bench_pairwise_fastchat,
+)
+from openjury.mt_bench_101.pipeline import run_mt_bench_101
 from openjury.utils import (
     cache_function_dataframe,
     data_root,
@@ -74,6 +80,175 @@ def load_contexts(dataset: str) -> pd.Series:
     return pd.read_csv(path).loc[:, "instruction"]
 
 
+def print_results(results):
+    """Print battle results in a nice formatted way"""
+
+    print("\n" + "=" * 60)
+    print("🏆 MODEL BATTLE RESULTS 🏆".center(60))
+    print(f"📊 Dataset: {results['dataset']}")
+    print(
+        f"🤖 Competitors: Model A: {results['model_A']} vs Model B: {results['model_B']}"
+    )
+    print(f"⚖️ Judge: {results['judge_model']}")
+    print(f"📈 Results Summary:")
+    print(f"   Total Battles: {results['num_battles']}")
+    print(f"   Win Rate (A): {results['winrate']:.1%}")
+    print(f"   ✅ Wins:   {results['num_wins']}")
+    print(f"   ❌ Losses: {results['num_losses']}")
+    print(f"   🤝 Ties:   {results['num_ties']}")
+    if results.get("num_missing", 0) > 0:
+        print(f"   ❓ Missing: {results['num_missing']}")
+
+    per_category = results.get("per_category")
+    if per_category:
+        print("\nPer-Category Breakdown:")
+        print(
+            f"  {'Category':<14} | {'Win Rate(A)':>11} | {'Wins':>4} | {'Losses':>6} | {'Ties':>4}"
+        )
+        print(f"  {'-' * 14}-+-{'-' * 11}-+-{'-' * 4}-+-{'-' * 6}-+-{'-' * 4}")
+        for cat, stats in sorted(per_category.items()):
+            print(
+                f"  {cat:<14} | {stats['winrate']:>11.1%} | "
+                f"{stats['num_wins']:>4} | {stats['num_losses']:>6} | {stats['num_ties']:>4}"
+            )
+
+    per_turn = results.get("per_turn")
+    if per_turn:
+        print("\nPer-Turn Breakdown:")
+        for turn, stats in sorted(per_turn.items()):
+            print(
+                f"  Turn {turn} Win Rate(A): {stats['winrate']:.1%} "
+                f"(W:{stats['num_wins']} L:{stats['num_losses']} T:{stats['num_ties']})"
+            )
+    print("=" * 60 + "\n")
+
+
+def compute_preference_stats(prefs: pd.Series) -> dict:
+    """Derive win/loss/tie counts and winrate from a Series of preferences.
+
+    Preference < 0.5 means model A wins, > 0.5 means model B wins,
+    exactly 0.5 is a tie.  None/NaN values are counted as missing.
+    """
+    num_battles = len(prefs)
+    num_wins = int(sum(prefs < 0.5))
+    num_losses = int(sum(prefs > 0.5))
+    num_ties = int(sum(prefs == 0.5))
+    num_missing = num_battles - (num_wins + num_losses + num_ties)
+    denom = num_wins + num_losses + num_ties
+    winrate = float((num_wins + 0.5 * num_ties) / denom) if denom else 0.0
+    return {
+        "num_battles": num_battles,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
+        "num_ties": num_ties,
+        "num_missing": num_missing,
+        "winrate": winrate,
+    }
+
+
+def _compute_grouped_stats(
+    preferences: pd.Series,
+    metadata: list[dict[str, object]],
+    group_by: str,
+) -> dict[object, dict[str, float | int]]:
+    grouped: dict[object, list[float]] = {}
+    for meta, pref in zip(metadata, preferences):
+        key = meta.get(group_by)
+        if key is None:
+            continue
+        grouped.setdefault(key, []).append(pref)
+    return {
+        key: compute_preference_stats(pd.Series(vals))
+        for key, vals in grouped.items()
+    }
+
+
+def _parse_preferences_from_annotations(
+    annotations: list,
+    score_parser: PairScore,
+) -> pd.Series:
+    return pd.Series(
+        [
+            score_parser.parse_model_raw(annotation.judge_completion)
+            for annotation in annotations
+        ]
+    )
+
+
+def _judge_turn(
+    *,
+    judge_chat_model,
+    instructions: list[str],
+    completions_A: list[str],
+    completions_B: list[str],
+    metadata: list[dict[str, object]],
+    score_parser: PairScore,
+    provide_explanation: bool,
+    swap_mode: str,
+    truncate_input_chars: int | None,
+    use_tqdm: bool,
+    system_prompt: str | None = None,
+    user_prompt_template: str | None = None,
+) -> tuple[
+    list,
+    list,
+    list[dict[str, object]],
+    list[dict[str, object]],
+    pd.Series,
+    list[dict[str, object]],
+]:
+    if not instructions:
+        return [], [], [], [], pd.Series(dtype=float), []
+
+    annotations = annotate_battles(
+        judge_chat_model=judge_chat_model,
+        instructions=instructions,
+        completions_A=completions_A,
+        completions_B=completions_B,
+        provide_explanation=provide_explanation,
+        system_prompt=system_prompt,
+        user_prompt_template=user_prompt_template,
+        truncate_input_chars=truncate_input_chars,
+        use_tqdm=use_tqdm,
+    )
+    preference_parts = [_parse_preferences_from_annotations(annotations, score_parser)]
+
+    annotations_reversed: list = []
+    metadata_for_reversed_annotations: list[dict[str, object]] = []
+    combined_metadata = list(metadata)
+
+    if swap_mode == "both":
+        print("Correction for judge bias towards a certain model position is set.")
+        print("Evaluating completions with models reversed.")
+        annotations_reversed = annotate_battles(
+            judge_chat_model=judge_chat_model,
+            instructions=instructions,
+            completions_A=completions_B,
+            completions_B=completions_A,
+            provide_explanation=provide_explanation,
+            system_prompt=system_prompt,
+            user_prompt_template=user_prompt_template,
+            truncate_input_chars=truncate_input_chars,
+            use_tqdm=use_tqdm,
+        )
+        prefs_reversed = _parse_preferences_from_annotations(
+            annotations_reversed, score_parser
+        )
+        preference_parts.append(1 - prefs_reversed)
+        metadata_for_reversed_annotations = list(metadata)
+        combined_metadata.extend(metadata)
+
+    preferences = pd.concat(preference_parts).reset_index(drop=True)
+    return (
+        annotations,
+        annotations_reversed,
+        list(metadata),
+        metadata_for_reversed_annotations,
+        preferences,
+        combined_metadata,
+    )
+
+
 def main(args: CliArgs):
     """
     1) take as input:
@@ -98,6 +273,8 @@ def main(args: CliArgs):
     # MT-Bench has its own pipeline: multi-turn generation + category-aware judging
     if args.dataset == "mt-bench":
         return run_mt_bench(args, ignore_cache)
+    if args.dataset == "mt-bench-101":
+        return run_mt_bench_101(args, ignore_cache)
 
     # Currrently, we run context evaluation
     is_fluency_task = "fluency" in args.dataset
