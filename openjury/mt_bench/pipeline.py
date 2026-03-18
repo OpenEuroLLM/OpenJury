@@ -32,7 +32,7 @@ from openjury.mt_bench.fastchat_compat import (
 from openjury.utils import cache_function_dataframe, make_model
 
 if TYPE_CHECKING:
-    from openjury.generate_and_evaluate import CliArgs
+    from openjury.config import CliArgs
 
 NEED_REF_CATS = {"math", "reasoning", "coding"}
 
