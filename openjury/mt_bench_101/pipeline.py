@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from openjury.instruction_dataset import load_instructions
 from openjury.mt_bench_101.evaluate import (
     derive_mt_bench_101_pairwise_preferences,
     judge_mt_bench_101_single,
@@ -21,7 +22,7 @@ from openjury.mt_bench_101.generate import generate_mt_bench_101_completions
 from openjury.utils import cache_function_dataframe, make_model
 
 if TYPE_CHECKING:
-    from openjury.generate_and_evaluate import CliArgs
+    from openjury.config import CliArgs
 
 
 def _generate_mt_bench_101_completions(
@@ -93,11 +94,7 @@ def run_mt_bench_101(args: CliArgs, ignore_cache: bool) -> pd.Series:
             "--swap_mode has no effect for mt-bench-101 since it does single answer grading before comparing the models"
         )
 
-    from openjury import generate_and_evaluate as gae
-
-    eval_items_df = gae.load_instructions(
-        "mt-bench-101", n_instructions=args.n_instructions
-    )
+    eval_items_df = load_instructions("mt-bench-101", n_instructions=args.n_instructions)
     print(
         "Generating completions from golden context for MT-Bench-101 with "
         f"{args.model_A} and {args.model_B}."
