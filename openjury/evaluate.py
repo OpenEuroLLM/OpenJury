@@ -17,6 +17,7 @@ from openjury.utils import (
     data_root,
     download_hf,
     do_inference,
+    truncate,
 )
 
 
@@ -51,18 +52,29 @@ class PairScore:
             return float(m.group(group_index).strip(" "))
 
 
+_COMPLETION_LABEL_SINGLE = "Answer"
+_COMPLETION_LABEL_MULTI_TURN = "Conversation with User"
+_EXPLANATION_SUFFIX = ", first starts with an explanation of your judgement"
+_SCORE_FENCE = "\n```"
+
+
 def load_judge_system_and_user_prompt(
     provide_explanation: bool = True,
+    multi_turn: bool = False,
 ) -> tuple[str, str]:
-    # Prepare judge
-    with open(Path(__file__).parent / "prompts" / "system-prompt.txt", "r") as f:
-        system_prompt = str(f.read())
+    prompts_dir = Path(__file__).parent / "prompts"
 
-    prompt_filename = (
-        "prompt-with-explanation.txt" if provide_explanation else "prompt.txt"
+    system_prompt = (prompts_dir / "system-prompt.txt").read_text()
+
+    user_prompt_template = (prompts_dir / "prompt.txt").read_text()
+    user_prompt_template = user_prompt_template.replace(
+        "{completion_label}",
+        _COMPLETION_LABEL_MULTI_TURN if multi_turn else _COMPLETION_LABEL_SINGLE,
     )
-    with open(Path(__file__).parent / "prompts" / prompt_filename, "r") as f:
-        user_prompt_template = str(f.read())
+    user_prompt_template = user_prompt_template.replace(
+        "{explanation_suffix}",
+        _EXPLANATION_SUFFIX if provide_explanation else _SCORE_FENCE,
+    )
 
     return system_prompt, user_prompt_template
 
@@ -286,14 +298,6 @@ def annotate_battles(
     prompt_template = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", user_prompt_template)]
     )
-
-    def truncate(s: str, max_len: int | None = None):
-        if not isinstance(s, str):
-            return ""
-        if max_len is not None:
-            return s[:max_len]
-        else:
-            return s
 
     inputs = prompt_template.batch(
         [
