@@ -171,7 +171,13 @@ class ChatVLLM:
           default chat template.
     """
 
-    def __init__(self, model: str, max_tokens: int = 8192, chat_template: str | None = None, **vllm_kwargs):
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int = 8192,
+        chat_template: str | None = None,
+        **vllm_kwargs,
+    ):
         from vllm import LLM, SamplingParams
 
         self.model_path = model
@@ -183,6 +189,7 @@ class ChatVLLM:
         if max_model_len is not None:
             try:
                 from transformers import AutoConfig
+
                 config = AutoConfig.from_pretrained(model, trust_remote_code=True)
                 model_max_pos = getattr(config, "max_position_embeddings", None)
                 if model_max_pos is not None and max_model_len > model_max_pos:
@@ -272,7 +279,11 @@ class ChatVLLM:
         if hasattr(input_item, "to_string"):
             return input_item.to_string()
         # List of dicts (messages) - concatenate contents
-        if isinstance(input_item, list) and input_item and isinstance(input_item[0], dict):
+        if (
+            isinstance(input_item, list)
+            and input_item
+            and isinstance(input_item[0], dict)
+        ):
             return "\n".join(msg["content"] for msg in input_item)
         raise ValueError(f"Cannot extract raw text from: {type(input_item)}")
 
@@ -360,9 +371,6 @@ def make_model(model: str, max_tokens: int | None = 8192, **engine_kwargs):
         ]
         if model_provider == "LlamaCpp":
             engine_kwargs["model_path"] = model_name
-            # Default n_ctx large enough for judge prompts (LlamaCpp default of 512 is too small)
-            if "n_ctx" not in engine_kwargs:
-                engine_kwargs["n_ctx"] = 8192
         else:
             engine_kwargs["model"] = model_name
 
