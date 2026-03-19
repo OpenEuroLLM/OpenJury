@@ -14,8 +14,7 @@ import numpy as np
 import pandas as pd
 
 from openjury.evaluate import (
-    annotate_battles,
-    PairScore,
+    judge_and_parse_prefs,
     resolve_judge_prompts,
 )
 from openjury.generate import generate_instructions, generate_base
@@ -158,7 +157,7 @@ class CliArgs:
             required=False,
             default=8192,
             help="Character-level truncation applied before tokenization: truncates each instruction "
-            "before model A/B generation and truncates each completion before judge evaluation.",   
+            "before model A/B generation and truncates each completion before judge evaluation.",
         )
         parser.add_argument(
             "--max_out_tokens_models",
@@ -206,15 +205,13 @@ class CliArgs:
             default="{}",
             help=(
                 "JSON dict of engine-specific kwargs forwarded to the underlying engine. "
-                "Example for vLLM: '{\"tensor_parallel_size\": 2, \"gpu_memory_utilization\": 0.9}'."
+                'Example for vLLM: \'{"tensor_parallel_size": 2, "gpu_memory_utilization": 0.9}\'.'
             ),
         )
         args = parser.parse_args()
 
         try:
-            engine_kwargs = (
-                json.loads(args.engine_kwargs) if args.engine_kwargs else {}
-            )
+            engine_kwargs = json.loads(args.engine_kwargs) if args.engine_kwargs else {}
             if not isinstance(engine_kwargs, dict):
                 raise ValueError("engine_kwargs must be a JSON object")
         except Exception as e:
@@ -333,7 +330,9 @@ def main(args: CliArgs):
         args.dataset, args.model_A, n_instructions
     )
     if dataset_completions_A is not None:
-        completions_A = dataset_completions_A.set_index("instruction_index").loc[:, "completion"]
+        completions_A = dataset_completions_A.set_index("instruction_index").loc[
+            :, "completion"
+        ]
     else:
         completions_A = cache_function_dataframe(
             lambda: gen_fun(
@@ -350,7 +349,9 @@ def main(args: CliArgs):
         args.dataset, args.model_B, n_instructions
     )
     if dataset_completions_B is not None:
-        completions_B = dataset_completions_B.set_index("instruction_index").loc[:, "completion"]
+        completions_B = dataset_completions_B.set_index("instruction_index").loc[
+            :, "completion"
+        ]
     else:
         completions_B = cache_function_dataframe(
             lambda: gen_fun(
@@ -406,34 +407,24 @@ def main(args: CliArgs):
         provide_explanation=args.provide_explanation,
         system_prompt=system_prompt,
     )
-    annotations = annotate_battles(
+    if args.swap_mode == "both":
+        print("Correction for judge bias towards a certain model position is set.")
+        print(
+            f"Evaluating completions with models reversed with judge {args.judge_model}."
+        )
+
+    annotations, annotations_reversed, prefs = judge_and_parse_prefs(
         judge_chat_model=judge_chat_model,
         instructions=instructions.head(n_instructions).tolist(),
         completions_A=completions_A.head(n_instructions).tolist(),
         completions_B=completions_B.head(n_instructions).tolist(),
+        swap_mode=args.swap_mode,
         provide_explanation=args.provide_explanation,
         system_prompt=effective_judge_system_prompt,
         user_prompt_template=judge_user_prompt_template,
         truncate_input_chars=args.truncate_all_input_chars,
         use_tqdm=args.use_tqdm,
     )
-
-    if args.swap_mode == "both":
-        print("Correction for judge bias towards a certain model position is set.")
-        print(
-            f"Evaluating completions with models reversed with judge {args.judge_model}."
-        )
-        annotations_reversed = annotate_battles(
-            judge_chat_model=judge_chat_model,
-            instructions=instructions.head(n_instructions).tolist(),
-            completions_A=completions_B.head(n_instructions).tolist(),
-            completions_B=completions_A.head(n_instructions).tolist(),
-            provide_explanation=args.provide_explanation,
-            system_prompt=effective_judge_system_prompt,
-            user_prompt_template=judge_user_prompt_template,
-            truncate_input_chars=args.truncate_all_input_chars,
-            use_tqdm=args.use_tqdm,
-        )
 
     df = pd.DataFrame(annotations)
     df["instruction_index"] = instructions.head(n_instructions).index.tolist()
@@ -452,24 +443,6 @@ def main(args: CliArgs):
         df = pd.concat([df, df_reversed])
 
     df.to_csv(res_folder / f"{name}-annotations.csv", index=False)
-
-    # compute preferences between A and B
-    score_parser = PairScore()
-    prefs = pd.Series(
-        [
-            score_parser.parse_model_raw(annotation.judge_completion)
-            for annotation in annotations
-        ]
-    )
-
-    if args.swap_mode == "both":
-        prefs_reversed = pd.Series(
-            [
-                score_parser.parse_model_raw(annotation.judge_completion)
-                for annotation in annotations_reversed
-            ]
-        )
-        prefs = pd.concat([prefs, (1 - prefs_reversed)]).reset_index(drop=True)
 
     # compute and report statistics
     summary = compute_pref_summary(prefs)
